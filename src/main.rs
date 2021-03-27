@@ -36,6 +36,7 @@ fn fetch_inbox_top(
 	// to do anything useful with the e-mails, we need to log in
 	println!("logging in..");
 	let mut imap_session = client.login(&user, &password).map_err(|e| e.0)?;
+	println!("getting capabilities..");
 	let caps = imap_session.capabilities()?;
 	println!("capabilities: {}", caps.iter().map(|x| format!("{:?}", x)).join(" "));
 
@@ -54,8 +55,8 @@ fn fetch_inbox_top(
 		|x| {
 			let mut fields = x.splitn(2, ',');
 			// TODO(2038): check if mailservers still just return the mailbox creation time in seconds
-			let uid_validity = fields.next().map(|x| x.parse::<u32>().ok()).unwrap_or_default().unwrap_or(0);
-			let uid_last = fields.next().map(|x| x.parse::<u32>().ok()).unwrap_or_default().unwrap_or(0);
+			let uid_validity = fields.next().map(|x| x.trim().parse::<u32>().ok()).unwrap_or_default().unwrap_or(0);
+			let uid_last = fields.next().map(|x| x.trim().parse::<u32>().ok()).unwrap_or_default().unwrap_or(0);
 			(uid_validity, uid_last)
 		}
 	).unwrap_or((0, 0));
@@ -63,9 +64,8 @@ fn fetch_inbox_top(
 	if uid_validity != prev_uid_validity {
 		fetch_range = "1:*".to_owned();
 		// TODO: somehow remove invalidated messages
-		// (is the maildir standard really this annoying?)
 	} else if uid_next != prev_uid + 1 {
-		fetch_range = format!("{}:*", prev_uid + 1)
+		fetch_range = format!("{}:*", prev_uid + 1);
 	} else {
 		println!("no new mail.");
 		imap_session.logout()?;
@@ -76,15 +76,14 @@ fn fetch_inbox_top(
 	let messages = imap_session.uid_fetch(&fetch_range, "RFC822")?;
 	let mut largest_uid = prev_uid;
 	for mail in messages.iter() {
-		largest_uid = cmp::max(largest_uid, mail.uid.unwrap());
-		println!("mail {:?}", mail.uid);
-		//let headers = mail.header().expect("message did not have headers!");
-		let body = mail.body().unwrap_or_default();
-		let mut data = Vec::new();
-		//data.extend(headers);
-		//data.push(b'\n');
-		data.extend(body);
-		maildir.store_new(&data)?;
+		let uid = mail.uid.unwrap();
+		largest_uid = cmp::max(largest_uid, uid);
+		println!("mail {:?}", uid);
+		let id = format!("{}_{}", uid_validity, uid);
+		if !maildir.exists(&id).unwrap_or(false) {
+			let mail_data = mail.body().unwrap_or_default();
+			maildir.store_new_with_id(&id, mail_data)?;
+		}
 	}
 	let uid = cmp::max(uid_next - 1, largest_uid);
 	maildir.save_file(".uid", &format!("{},{}", uid_validity, uid))?;

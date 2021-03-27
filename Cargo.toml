@@ -3,11 +3,12 @@ name = "inboxid"
 version = "0.1.0"
 authors = ["Arne Keller <arne.keller@posteo.de>"]
 edition = "2018"
+license = "GPL-3.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 imap = { version = "2.4.1", default-features = false }
 itertools = "0.10.0"
-maildir = "0.5.0"
+maildir = { path = "../maildir" }
 rustls-connector = "0.13.1"
