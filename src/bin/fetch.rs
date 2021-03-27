@@ -1,41 +1,29 @@
-use std::{cmp, env, error::Error, fs, io, net::TcpStream, time::Duration};
+use std::{cmp, env, fs, io, time::Duration};
 
 use itertools::Itertools;
 use maildir::Maildir;
-use rustls_connector::RustlsConnector;
 
-fn main() -> Result<(), Box<dyn Error>> {
+use inboxid::*;
+
+fn main() -> Result<()> {
 	let host = env::var("MAILHOST").expect("missing envvar MAILHOST");
 	let user = env::var("MAILUSER").expect("missing envvar MAILUSER");
 	let password = env::var("MAILPASSWORD").expect("missing envvar MAILPASSWORD");
-	let maildir = env::var("MAILDIR").expect("missing envvar MAILDIR");
-	let maildir = Maildir::from(maildir);
-	maildir.create_dirs()?;
+	let maildir = get_maildir("INBOX")?;
 	let port = 993;
 
-	fetch_inbox_top(&host, user, password, port, "INBOX", maildir)
+	fetch_inbox_top(&host, &user, &password, port, "INBOX", maildir)
 }
 
 fn fetch_inbox_top(
 	host: &str,
-	user: String,
-	password: String,
+	user: &str,
+	password: &str,
 	port: u16,
 	mailbox: &str,
 	maildir: Maildir,
-) -> Result<(), Box<dyn Error>> {
-	println!("connecting..");
-	let stream = TcpStream::connect((host, port))?;
-	let tls = RustlsConnector::new_with_native_certs()?;
-	println!("initializing TLS..");
-	let tlsstream = tls.connect(host, stream)?;
-	println!("initializing client..");
-	let client = imap::Client::new(tlsstream);
-
-	// the client we have here is unauthenticated.
-	// to do anything useful with the e-mails, we need to log in
-	println!("logging in..");
-	let mut imap_session = client.login(&user, &password).map_err(|e| e.0)?;
+) -> Result<()> {
+	let mut imap_session = connect(host, port, user, password)?;
 	println!("getting capabilities..");
 	let caps = imap_session.capabilities()?;
 	println!("capabilities: {}", caps.iter().map(|x| format!("{:?}", x)).join(" "));
@@ -95,16 +83,16 @@ fn fetch_inbox_top(
 }
 
 trait MaildirExtension {
-	fn get_file(&self, name: &str) -> Result<String, io::Error>;
-	fn save_file(&self, name: &str, content: &str) -> Result<(), io::Error>;
+	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error>;
+	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error>;
 }
 
 impl MaildirExtension for Maildir {
-	fn get_file(&self, name: &str) -> Result<String, io::Error> {
+	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error> {
 		fs::read_to_string(self.path().join(name))
 	}
 
-	fn save_file(&self, name: &str, content: &str) -> Result<(), io::Error> {
+	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error> {
 		fs::write(self.path().join(name), content)
 	}
 }

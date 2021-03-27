@@ -18,6 +18,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
+name = "ascii_table"
+version = "3.0.2"
+source = "git+https://gitlab.com/arnekeller/ascii-table.git?rev=7fffb5d93b8c63283fc1359ee3c6dbfcf12ed90b#7fffb5d93b8c63283fc1359ee3c6dbfcf12ed90b"
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,9 +177,11 @@ dependencies = [
 name = "inboxid"
 version = "0.1.0"
 dependencies = [
+ "ascii_table",
  "imap",
  "itertools",
  "maildir",
+ "mailparse",
  "rustls-connector",
 ]
 
