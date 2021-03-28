@@ -12,11 +12,12 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let maildir = get_maildir(mailbox)?;
 
 	let mut rows = Vec::new();
-	for mut mail in maildir.list_new_sorted(Box::new(|name| {
+	let mut seen = Vec::new();
+	for mut maile in maildir.list_new_sorted(Box::new(|name| {
 		// sort by UID
 		name.splitn(2, '_').nth(1).map(|x| x.parse().unwrap_or(0)).unwrap_or(0)
 	})) {
-		match mail.as_mut().map(|x| x.parsed()) {
+		match maile.as_mut().map(|x| x.parsed()) {
 		    Ok(Ok(mail)) => {
 				let headers = mail.get_headers();
 				let from = headers.get_all_values("From").join(" ");
@@ -27,6 +28,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 					dt.format("%Y-%m-%d %H:%M").to_string()
 				}).unwrap_or(date);
 				rows.push(vec![from, subj, date]);
+				seen.push(maile.as_ref().unwrap().id().to_owned());
 			}
 		    Ok(Err(e)) => {
 				println!("error parsing mail: {:?}", e);
@@ -51,7 +53,12 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			column.max_width = usize::MAX;
             ascii_table.columns.insert(i, column);
     }
-    ascii_table.print(rows);
+    ascii_table.print(rows); // prints a 0 if empty :)
+
+	// only after the user saw the new mail, move it out of 'new'
+	for seen in seen {
+		maildir.move_new_to_cur(&seen)?;
+	}
 
 	Ok(())
 }
