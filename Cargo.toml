@@ -13,4 +13,5 @@ itertools = "0.10.0"
 maildir = { path = "../maildir" }
 mailparse = "0.13.2"
 rustls-connector = "0.13.1"
-ascii_table = { git = "https://gitlab.com/arnekeller/ascii-table.git", rev = "7fffb5d93b8c63283fc1359ee3c6dbfcf12ed90b" }
+ascii_table = { git = "https://gitlab.com/arnekeller/ascii-table.git", branch = "master" }
+chrono = "0.4.19"
