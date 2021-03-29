@@ -15,3 +15,5 @@ mailparse = "0.13.2"
 rustls-connector = "0.13.1"
 ascii_table = { git = "https://gitlab.com/arnekeller/ascii-table.git", branch = "master" }
 chrono = "0.4.19"
+# remove when 0.24.3 is released
+rusqlite = { git = "https://github.com/rusqlite/rusqlite", branch = "master", features = ["bundled"] }

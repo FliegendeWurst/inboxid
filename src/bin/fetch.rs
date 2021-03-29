@@ -4,6 +4,8 @@ use itertools::Itertools;
 use maildir::Maildir;
 
 use inboxid::*;
+use mailparse::{MailHeaderMap, parse_headers};
+use rusqlite::params;
 
 fn main() -> Result<()> {
 	let host = env::var("MAILHOST").expect("missing envvar MAILHOST");
@@ -23,6 +25,7 @@ fn fetch_inbox_top(
 	mailbox: &str,
 	maildir: Maildir,
 ) -> Result<()> {
+	let db = get_db()?;
 	let mut imap_session = connect(host, port, user, password)?;
 	println!("getting capabilities..");
 	let caps = imap_session.capabilities()?;
@@ -63,14 +66,22 @@ fn fetch_inbox_top(
 
 	let messages = imap_session.uid_fetch(&fetch_range, "RFC822")?;
 	let mut largest_uid = prev_uid;
+
+	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?)")?;
+
 	for mail in messages.iter() {
 		let uid = mail.uid.unwrap();
 		largest_uid = cmp::max(largest_uid, uid);
 		println!("mail {:?}", uid);
 		let id = format!("{}_{}", uid_validity, uid);
+		let uid = ((uid_validity as u64) << 32) | uid as u64;
 		if !maildir.exists(&id).unwrap_or(false) {
 			let mail_data = mail.body().unwrap_or_default();
 			maildir.store_new_with_id(&id, mail_data)?;
+
+			let headers = parse_headers(&mail_data)?.0;
+			let message_id = headers.get_all_values("Message-ID").join(" ");
+			save_mail.execute(params![mailbox, uid, message_id])?;
 		}
 	}
 	let uid = cmp::max(uid_next - 1, largest_uid);
