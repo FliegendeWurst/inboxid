@@ -66,6 +66,7 @@ fn sync(
 	let mut all_mail = db.prepare("SELECT uid, message_id FROM mail WHERE mailbox = ?")?;
 	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?)")?;
 	let mut maildirs: HashMap<&str, Maildir> = names.iter().map(|&x| (x, get_maildir(x).unwrap())).collect();
+	let mut to_remove: HashMap<&str, _> = HashMap::new();
 	for &mailbox in &names {
 		let remote_mails = &remote[mailbox];
 
@@ -105,7 +106,7 @@ fn sync(
 				let uid = mail.uid.unwrap();
 				println!("fetching: {}/{}", mailbox, uid);
 				let id = gen_id(uid_validity, uid);
-				if !maildir.exists(&id).unwrap_or(false) {
+				if !maildir.exists(&id) {
 					let mail_data = mail.body().unwrap_or_default();
 					maildir.store_new_with_id(&id, mail_data)?;
 
@@ -121,21 +122,30 @@ fn sync(
 		let mails = all_mail.query_map(params![mailbox], |row|
 			Ok((load_i64(row.get::<_, i64>(0)?), row.get::<_, String>(1)?)))?
 			.map(|x| x.unwrap()).collect_vec();
+		let mut removed = Vec::new();
 		for (uid, message_id) in mails {
 			let uid1 = (uid >> 32) as u32;
 			let uid2 = ((uid << 32) >> 32) as u32;
 			if !remote_mails.contains_key(&message_id) {
-				let uid_name = gen_id(uid1, uid2);
-				println!("removing: {}/{}", mailbox, uid_name);
-				if !maildirs.contains_key(".gone") {
-					maildirs.insert(".gone", get_maildir(".gone")?);
-				}
-				let maildir = &maildirs[mailbox];
-				let name = maildir.find_filename(&uid_name).unwrap();
-				maildirs[".gone"].store_new_from_path(&format!("{}_{}", mailbox, uid_name), name)?;
-				maildir.delete(&uid_name)?;
-				delete_mail.execute(params![mailbox, uid])?;
+				removed.push((uid1, uid2, uid));
 			}
+		}
+		if !removed.is_empty() {
+			to_remove.insert(mailbox, removed);
+		}
+	}
+	for mailbox in to_remove.keys() {
+		for &(uid1, uid2, uid) in &to_remove[mailbox] {
+			let uid_name = gen_id(uid1, uid2);
+			println!("removing: {}/{}", mailbox, uid_name);
+			if !maildirs.contains_key(".gone") {
+				maildirs.insert(".gone", get_maildir(".gone")?);
+			}
+			let maildir = &maildirs[mailbox];
+			let name = maildir.find_filename(&uid_name).unwrap();
+			maildirs[".gone"].store_new_from_path(&format!("{}_{}", mailbox, uid_name), name)?;
+			maildir.delete(&uid_name)?;
+			delete_mail.execute(params![mailbox, uid])?;
 		}
 	}
 

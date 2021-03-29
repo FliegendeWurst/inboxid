@@ -75,7 +75,7 @@ fn fetch_inbox_top(
 		println!("mail {:?}", uid);
 		let id = gen_id(uid_validity, uid);
 		let uid = ((uid_validity as u64) << 32) | uid as u64;
-		if !maildir.exists(&id).unwrap_or(false) {
+		if !maildir.exists(&id) {
 			let mail_data = mail.body().unwrap_or_default();
 			maildir.store_new_with_id(&id, mail_data)?;
 
