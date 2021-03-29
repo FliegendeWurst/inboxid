@@ -1,4 +1,4 @@
-use std::{cmp, env, fs, io, time::Duration};
+use std::{cmp, env, time::Duration};
 
 use itertools::Itertools;
 use maildir::Maildir;
@@ -73,7 +73,7 @@ fn fetch_inbox_top(
 		let uid = mail.uid.unwrap();
 		largest_uid = cmp::max(largest_uid, uid);
 		println!("mail {:?}", uid);
-		let id = format!("{}_{}", uid_validity, uid);
+		let id = gen_id(uid_validity, uid);
 		let uid = ((uid_validity as u64) << 32) | uid as u64;
 		if !maildir.exists(&id).unwrap_or(false) {
 			let mail_data = mail.body().unwrap_or_default();
@@ -81,7 +81,7 @@ fn fetch_inbox_top(
 
 			let headers = parse_headers(&mail_data)?.0;
 			let message_id = headers.get_all_values("Message-ID").join(" ");
-			save_mail.execute(params![mailbox, uid, message_id])?;
+			save_mail.execute(params![mailbox, store_i64(uid), message_id])?;
 		}
 	}
 	let uid = cmp::max(uid_next - 1, largest_uid);
@@ -91,19 +91,4 @@ fn fetch_inbox_top(
 	imap_session.logout()?;
 
 	Ok(())
-}
-
-trait MaildirExtension {
-	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error>;
-	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error>;
-}
-
-impl MaildirExtension for Maildir {
-	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error> {
-		fs::read_to_string(self.path().join(name))
-	}
-
-	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error> {
-		fs::write(self.path().join(name), content)
-	}
 }
