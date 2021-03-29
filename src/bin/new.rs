@@ -23,7 +23,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let mut seen = Vec::new();
 	for mut maile in maildir.list_new_sorted(Box::new(|name| {
 		// sort by UID
-		name.splitn(2, '_').nth(1).map(|x| x.parse().unwrap_or(0)).unwrap_or(0)
+		u32::MAX - name.splitn(2, '_').nth(1).map(|x| x.parse().unwrap_or(0)).unwrap_or(0)
 	})) {
 		match maile.as_mut().map(|x| x.parsed()) {
 		    Ok(Ok(mail)) => {

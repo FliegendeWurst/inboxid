@@ -1,5 +1,3 @@
-#![feature(string_remove_matches)]
-
 use std::{collections::HashMap, env};
 
 use imap::types::Flag;
@@ -130,17 +128,17 @@ fn sync(
 				if flags.contains(&Flag::Seen) {
 					f.push('S');
 				} else {
-					f.remove_matches('S');
+					f = f.replace('S', "");
 				}
 				if flags.contains(&Flag::Answered) {
 					f.push('R');
 				} else {
-					f.remove_matches('R');
+					f = f.replace('R', "");
 				}
 				if flags.contains(&Flag::Flagged) {
 					f.push('F');
 				} else {
-					f.remove_matches('F');
+					f = f.replace('F', "");
 				}
 				Maildir::normalize_flags(&f)
 			});

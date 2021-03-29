@@ -17,3 +17,5 @@ ascii_table = { git = "https://gitlab.com/arnekeller/ascii-table.git", branch = 
 chrono = "0.4.19"
 # remove when 0.24.3 is released
 rusqlite = { git = "https://github.com/rusqlite/rusqlite", branch = "master", features = ["bundled"] }
+rustyline = "8.0.0"
+moins = { git = "https://github.com/FliegendeWurst/moins", branch = "master" }
