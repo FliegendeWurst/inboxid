@@ -1,11 +1,19 @@
+use std::env;
+
 use ascii_table::{Align, AsciiTable, Column};
 use chrono::{Local, NaiveDateTime, TimeZone};
+use itertools::Itertools;
 use mailparse::{MailHeaderMap, dateparse};
 
 use inboxid::*;
 
 fn main() -> Result<()> {
-	show_listing("INBOX")
+	let args = env::args().collect_vec();
+	if args.len() > 1 {
+		show_listing(&args[1])
+	} else {
+		show_listing("INBOX")
+	}
 }
 
 fn show_listing(mailbox: &str) -> Result<()> {

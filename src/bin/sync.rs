@@ -1,3 +1,5 @@
+#![feature(string_remove_matches)]
+
 use std::{collections::HashMap, env};
 
 use imap::types::Flag;
@@ -88,7 +90,7 @@ fn sync(
 				let maildir2 = &maildirs[mailbox];
 				let new_id = gen_id(uid1, uid2);
 				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
-				maildir2.store_new_from_path(&new_id, name)?;
+				maildir2.store_cur_from_path(&new_id, name)?;
 				save_mail.execute(params![mailbox, store_i64(*full_uid), message_id])?;
 			} else {
 				to_fetch.push(uid2);
@@ -108,7 +110,7 @@ fn sync(
 				let id = gen_id(uid_validity, uid);
 				if !maildir.exists(&id) {
 					let mail_data = mail.body().unwrap_or_default();
-					maildir.store_new_with_id(&id, mail_data)?;
+					maildir.store_cur_with_id(&id, mail_data)?;
 
 					let headers = parse_headers(&mail_data)?.0;
 					let message_id = headers.get_all_values("Message-ID").join(" ");
@@ -118,6 +120,30 @@ fn sync(
 					println!("warning: DB outdated, downloaded mail again");
 				}
 			}
+		}
+		let maildir = &maildirs[mailbox];
+		for message_id in remote_mails.keys() {
+			let (uid1, uid2, _, ref flags) = remote_mails[message_id];
+			let id = gen_id(uid1, uid2);
+			let _ = maildir.update_flags(&id, |f| {
+				let mut f = f.to_owned();
+				if flags.contains(&Flag::Seen) {
+					f.push('S');
+				} else {
+					f.remove_matches('S');
+				}
+				if flags.contains(&Flag::Answered) {
+					f.push('R');
+				} else {
+					f.remove_matches('R');
+				}
+				if flags.contains(&Flag::Flagged) {
+					f.push('F');
+				} else {
+					f.remove_matches('F');
+				}
+				Maildir::normalize_flags(&f)
+			});
 		}
 		let mails = all_mail.query_map(params![mailbox], |row|
 			Ok((load_i64(row.get::<_, i64>(0)?), row.get::<_, String>(1)?)))?
@@ -145,7 +171,7 @@ fn sync(
 			let name = maildir.find_filename(&uid_name).unwrap();
 			maildirs[".gone"].store_new_from_path(&format!("{}_{}", mailbox, uid_name), name)?;
 			maildir.delete(&uid_name)?;
-			delete_mail.execute(params![mailbox, uid])?;
+			delete_mail.execute(params![mailbox, store_i64(uid)])?;
 		}
 	}
 
