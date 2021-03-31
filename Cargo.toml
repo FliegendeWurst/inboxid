@@ -10,7 +10,7 @@ license = "GPL-3.0-or-later"
 [dependencies]
 imap = { version = "2.4.1", default-features = false }
 itertools = "0.10.0"
-maildir = { path = "../maildir" }
+maildir = { git = "https://github.com/FliegendeWurst/maildir.git", branch = "master", features = ["mmap"] }
 mailparse = "0.13.2"
 rustls-connector = "0.13.1"
 ascii_table = { git = "https://gitlab.com/arnekeller/ascii-table.git", branch = "master" }
@@ -20,3 +20,4 @@ rusqlite = { git = "https://github.com/rusqlite/rusqlite", branch = "master", fe
 rustyline = "8.0.0"
 moins = { git = "https://github.com/FliegendeWurst/moins", branch = "master" }
 anyhow = "1.0.40"
+mailproc = { git = "https://github.com/FliegendeWurst/mailproc.git", branch = "master" }

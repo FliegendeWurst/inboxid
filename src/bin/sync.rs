@@ -35,7 +35,7 @@ fn sync(
 		println!("{:?}", x);
 		names.push(x.name());
 	}
-	names = vec!["INBOX", "nebenan"];
+	names = vec!["INBOX", "Github", "nebenan"];
 
 	let mut remote = HashMap::new();
 

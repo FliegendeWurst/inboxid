@@ -9,8 +9,9 @@ use rusqlite::{Connection, params};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type ImapSession = Session<StreamOwned<ClientSession, TcpStream>>;
 
-pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<Session<StreamOwned<ClientSession, TcpStream>>> {
+pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<ImapSession> {
 	println!("connecting..");
 	let stream = TcpStream::connect((host, port))?;
 	let tls = RustlsConnector::new_with_native_certs()?;
@@ -54,7 +55,7 @@ pub fn gen_id(uid_validity: u32, uid: u32) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MaildirID {
 	uid_validity: u32,
-	uid: u32,
+	pub uid: u32,
 }
 
 impl TryFrom<&str> for MaildirID {
@@ -156,4 +157,12 @@ pub fn remove_cow<'a>(x: &Flag<'a>) -> Flag<'static> {
 		Flag::Recent => Flag::Recent,
 		Flag::MayCreate => Flag::MayCreate,
 	}
+}
+
+pub fn get_imap_session() -> Result<ImapSession> {
+	let host = env::var("MAILHOST").expect("missing envvar MAILHOST");
+	let user = env::var("MAILUSER").expect("missing envvar MAILUSER");
+	let password = env::var("MAILPASSWORD").expect("missing envvar MAILPASSWORD");
+	let port = 993;
+	connect(&host, port, &user, &password)
 }
