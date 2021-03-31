@@ -1,10 +1,8 @@
-use std::{collections::HashMap, env};
+use std::{array::IntoIter, env};
 
 use ascii_table::{Align, AsciiTable, Column};
-use chrono::{Local, NaiveDateTime, TimeZone};
 use inboxid::*;
 use itertools::Itertools;
-use mailparse::{MailHeaderMap, dateparse};
 use rustyline::{Editor, error::ReadlineError};
 
 fn main() -> Result<()> {
@@ -19,57 +17,29 @@ fn main() -> Result<()> {
 fn show_listing(mailbox: &str) -> Result<()> {
 	let maildir = get_maildir(mailbox)?;
 
-	let mut rows = Vec::new();
-	let mut mail_list = Vec::new();
-	let mut i = 0;
-	// TODO(refactor) merge with new
-	let mut list = maildir.list_cur_sorted(Box::new(|name| {
-		// sort by UID
-		name.splitn(2, '_').nth(1).map(|x| x.parse().unwrap_or(0)).unwrap_or(0)
-	})).collect_vec();
-	let list = list.iter_mut().map(
-		|x| x.as_mut().map(|x| (x.flags().to_owned(), x.id().to_owned(), x.parsed()))).collect_vec();
-	for maile in &list {
-		match maile {
-			Ok((flags, id, Ok(mail))) => {
-				let headers = mail.get_headers();
-				let from = headers.get_all_values("From").join(" ");
-				let subj = headers.get_all_values("Subject").join(" ");
-				let date = headers.get_all_values("Date").join(" ");
-				let date = dateparse(&date).map(|x| {
-					let dt = Local.from_utc_datetime(&NaiveDateTime::from_timestamp(x, 0));
-					dt.format("%Y-%m-%d %H:%M").to_string()
-				}).unwrap_or(date);
-				let mut flags_display = String::new();
-				if flags.contains('F') {
-					flags_display.push('+');
-				}
-				if flags.contains('R') {
-					flags_display.push('R');
-				}
-				if flags.contains('S') {
-					flags_display.push(' ');
-				} else {
-					flags_display.push('*');
-				}
-				rows.push(vec![i.to_string(), flags_display, from, subj, date]);
-				i += 1;
-				mail_list.push((flags, id, mail));
-			}
-			Ok((_, _, Err(e))) => {
-				println!("error parsing mail: {:?}", e);
-			}
-			Err(e) => {
-				println!("error: {:?}", e);
-			}
-		}
+	let mut mails = Vec::new();
+	for x in maildir.list_cur() {
+		mails.push(x?);
 	}
-	rows.sort_unstable_by(|x, y| x[4].cmp(&y[4]));
-	let count = rows.len();
-	let mut mails = HashMap::new();
-	for (i, row) in rows.iter_mut().enumerate() {
-		mails.insert(count - i, &mail_list[row[0].parse::<usize>().unwrap()]);
-		row[0] = (count - i).to_string();
+	let mut mails = maildir.get_mails(&mut mails)?;
+	mails.sort_by_key(|x| x.date);
+	
+	let mut rows = Vec::new();
+	for (i, mail) in mails.iter().enumerate() {
+		let flags = &mail.flags;
+		let mut flags_display = String::new();
+		if flags.contains('F') {
+			flags_display.push('+');
+		}
+		if flags.contains('R') {
+			flags_display.push('R');
+		}
+		if flags.contains('S') {
+			flags_display.push(' ');
+		} else {
+			flags_display.push('*');
+		}
+		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from.clone(), mail.subject.clone(), mail.date_iso.clone()]));
 	}
 
 	let mut ascii_table = AsciiTable::default();
@@ -98,9 +68,10 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		let readline = rl.readline(">> ");
 		match readline {
 			Ok(line) => {
-				let mail = &mails[&line.trim().parse::<usize>().unwrap()];
-				println!("{}", std::str::from_utf8(&mail.2.get_body_raw().unwrap()).unwrap());
-				for x in &mail.2.subparts {
+				let idx = mails.len() - line.trim().parse::<usize>().unwrap();
+				let mail = &mails[idx];
+				println!("{}", std::str::from_utf8(&mail.get_body_raw().unwrap()).unwrap());
+				for x in &mail.subparts {
 					if x.ctype.mimetype == "text/html" {
 						continue; // TODO
 					}

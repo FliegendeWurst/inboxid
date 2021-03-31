@@ -19,3 +19,4 @@ chrono = "0.4.19"
 rusqlite = { git = "https://github.com/rusqlite/rusqlite", branch = "master", features = ["bundled"] }
 rustyline = "8.0.0"
 moins = { git = "https://github.com/FliegendeWurst/moins", branch = "master" }
+anyhow = "1.0.40"
