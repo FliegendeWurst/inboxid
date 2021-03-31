@@ -21,3 +21,5 @@ rustyline = "8.0.0"
 moins = { git = "https://github.com/FliegendeWurst/moins", branch = "master" }
 anyhow = "1.0.40"
 mailproc = { git = "https://github.com/FliegendeWurst/mailproc.git", branch = "master" }
+subprocess = "0.2.6"
+mime2ext = "0.1.2"

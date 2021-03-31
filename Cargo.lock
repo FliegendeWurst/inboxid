@@ -279,10 +279,12 @@ dependencies = [
  "maildir",
  "mailparse",
  "mailproc",
+ "mime2ext",
  "moins",
  "rusqlite",
  "rustls-connector",
  "rustyline",
+ "subprocess",
 ]
 
 [[package]]
@@ -293,6 +295,12 @@ checksum = "37d572918e350e82412fe766d24b15e6682fb2ed2bbe018280caa810397cb319"
 dependencies = [
  "either",
 ]
+
+[[package]]
+name = "itoa"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
 
 [[package]]
 name = "js-sys"
@@ -399,9 +407,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mime2ext"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b88947611258697e12f8602a44003b0885ca5fe30f27132d63c8f47fe98f2f2e"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "moins"
 version = "0.5.0"
-source = "git+https://github.com/FliegendeWurst/moins?branch=master#46df794709b7fdc23e83e61d97c75b11e8248f0f"
+source = "git+https://github.com/FliegendeWurst/moins?branch=master#d30052f34176336d27c35c8e62fa56fce70b03ea"
 dependencies = [
  "termion",
 ]
@@ -501,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "quoted_printable"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b080c5db639b292ac79cbd34be0cfc5d36694768d8341109634d90b86930e2"
+checksum = "1238256b09923649ec89b08104c4dfe9f6cb2fea734a5db5384e44916d59e9c5"
 
 [[package]]
 name = "radix_trie"
@@ -709,6 +727,9 @@ name = "serde"
 version = "1.0.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "558dc50e1a5a5fa7112ca2ce4effcb321b0300c0d4ccf0776a9f60cd89031171"
+dependencies = [
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_derive"
@@ -719,6 +740,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.64"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799e97dc9fdae36a5c8b8f2cae9ce2ee9fdce2058c57a93e6099d919fd982f79"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]

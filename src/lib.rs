@@ -109,6 +109,37 @@ impl<'a> Deref for EasyMail<'a> {
 	}
 }
 
+pub trait MailExtension {
+	fn print_tree_structure(&self, depth: usize, counter: &mut usize);
+	fn get_tree_part(&self, counter: &mut usize, target: usize) -> Option<&ParsedMail>;
+}
+
+impl MailExtension for ParsedMail<'_> {
+	fn print_tree_structure(&self, depth: usize, counter: &mut usize) {
+		if depth == 0 {
+			println!("{}", self.ctype.mimetype);
+		}
+		for mail in &self.subparts {
+			println!("{}-> {} [{}]", "   ".repeat(depth), mail.ctype.mimetype, counter);
+			*counter += 1;
+			mail.print_tree_structure(depth + 1, counter);
+		}
+	}
+
+	fn get_tree_part(&self, counter: &mut usize, target: usize) -> Option<&ParsedMail> {
+		for mail in &self.subparts {
+			if *counter == target {
+				return Some(mail);
+			}
+			*counter += 1;
+			if let Some(x) = mail.get_tree_part(counter, target) {
+				return Some(x);
+			}
+		}
+		None
+	}
+}
+
 pub trait MaildirExtension {
 	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error>;
 	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error>;
