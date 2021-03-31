@@ -82,14 +82,15 @@ fn sync(
 				let local_uid1 = (full_uid >> 32) as u32;
 				let local_uid2 = ((full_uid << 32) >> 32) as u32;
 				let local_id = gen_id(local_uid1, local_uid2);
+				let new_uid = MaildirID::new(uid1, uid2);
+				let new_id = new_uid.to_string();
 				// hardlink mail
 				let maildir1 = &maildirs[&**inbox];
+				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
 				let name = maildir1.find_filename(&local_id).unwrap();
 				let maildir2 = &maildirs[mailbox];
-				let new_id = gen_id(uid1, uid2);
-				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
 				maildir2.store_cur_from_path(&new_id, name)?;
-				save_mail.execute(params![mailbox, store_i64(*full_uid), message_id])?;
+				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id])?;
 			} else {
 				to_fetch.push(uid2);
 			}

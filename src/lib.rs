@@ -78,6 +78,19 @@ impl ToString for MaildirID {
 	}
 }
 
+impl MaildirID {
+	pub fn new(x: u32, y: u32) -> Self {
+		Self {
+			uid_validity: x,
+			uid: y
+		}
+	}
+
+	pub fn to_i64(&self) -> i64 {
+		store_i64(((self.uid_validity as u64) << 32) | self.uid as u64)
+	}
+}
+
 pub struct EasyMail<'a> {
 	pub mail: ParsedMail<'a>,
 	pub id: MaildirID,
