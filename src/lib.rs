@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fs, io, net::TcpStream, ops::Deref};
+use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::Debug, fs, hash::Hash, io, net::TcpStream, ops::Deref};
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
@@ -52,7 +52,7 @@ pub fn gen_id(uid_validity: u32, uid: u32) -> String {
 	format!("{}_{}", uid_validity, uid)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MaildirID {
 	uid_validity: u32,
 	pub uid: u32,
@@ -92,7 +92,7 @@ impl MaildirID {
 }
 
 pub struct EasyMail<'a> {
-	pub mail: ParsedMail<'a>,
+	mail: Option<ParsedMail<'a>>,
 	pub id: MaildirID,
 	pub flags: String,
 	pub from: String,
@@ -101,11 +101,55 @@ pub struct EasyMail<'a> {
 	pub date_iso: String,
 }
 
+impl EasyMail<'_> {
+	pub fn new_pseudo(subject: String) -> Self {
+		Self {
+		    mail: None,
+		    id: MaildirID::new(0, 0),
+			flags: "S".to_owned(),
+			from: String::new(),
+		    subject,
+			date: Local.from_utc_datetime(&NaiveDateTime::from_timestamp(0, 0)),
+			date_iso: "????-??-??".to_owned()
+		}
+	}
+
+	pub fn get_header(&self, header: &str) -> String {
+		self.get_headers().get_all_values(header).join(" ")
+	}
+
+	pub fn get_header_values(&self, header: &str) -> Vec<String> {
+		self.get_headers().get_all_values(header)
+	}
+}
+
+impl Debug for EasyMail<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Mail[ID={},Subject={:?}]", self.id.uid, self.subject)
+    }
+}
+
+impl PartialEq for EasyMail<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.from == other.from && self.subject == other.subject
+    }
+}
+
+impl Eq for EasyMail<'_> {}
+
+impl Hash for EasyMail<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+		self.from.hash(state);
+		self.subject.hash(state);
+    }
+}
+
 impl<'a> Deref for EasyMail<'a> {
 	type Target = ParsedMail<'a>;
 
 	fn deref(&self) -> &Self::Target {
-		&self.mail
+		&self.mail.as_ref().unwrap()
 	}
 }
 
@@ -169,7 +213,7 @@ impl MaildirExtension for Maildir {
 				Local.from_utc_datetime(&NaiveDateTime::from_timestamp(x, 0))
 			)?;
 			mails.push(EasyMail {
-				mail,
+				mail: Some(mail),
 				flags,
 				id,
 				from,
