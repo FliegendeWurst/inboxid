@@ -1,12 +1,14 @@
-use std::{collections::HashMap, env};
+use std::{borrow::Cow, collections::HashMap, env};
 
-use imap::types::Flag;
+use imap::types::{Flag, NameAttribute};
 use itertools::Itertools;
 use maildir::Maildir;
 
 use inboxid::*;
 use mailparse::{MailHeaderMap, parse_header, parse_headers};
 use rusqlite::params;
+
+const TRASH: NameAttribute = NameAttribute::Custom(Cow::Borrowed("\\Trash"));
 
 fn main() -> Result<()> {
 	let host = env::var("MAILHOST").expect("missing envvar MAILHOST");
@@ -33,13 +35,13 @@ fn sync(
 	let list = imap_session.list(None, Some("*"))?;
 	for x in list.iter() {
 		println!("{:?}", x);
-		names.push(x.name());
+		names.push(x);
 	}
-	names = vec!["INBOX", "Github", "nebenan"];
 
 	let mut remote = HashMap::new();
 
-	for &mailbox in &names {
+	for &name in &names {
+		let mailbox = name.name();
 		println!("indexing {}", mailbox);
 		let resp = imap_session.examine(mailbox)?;
 		let uid_validity = resp.uid_validity.unwrap();
@@ -52,11 +54,12 @@ fn sync(
 				continue;
 			}
 			let header = m.header().unwrap();
-			let header = parse_header(header)?.0;
+			let message_id = parse_header(header).map(|x| x.0.get_value())
+				.unwrap_or_else(|_| format!("<{}_{}_{}@no-message-id>", mailbox, uid_validity, m.uid.unwrap()));
 			let uid = m.uid.unwrap();
 			let full_uid = ((uid_validity as u64) << 32) | uid as u64;
 			let flags = flags.iter().map(|x| remove_cow(x)).collect_vec();
-			mails.insert(header.get_value(), (uid_validity, uid, full_uid, flags));
+			mails.insert(message_id, (uid_validity, uid, full_uid, flags));
 		}
 		remote.insert(mailbox, mails);
 	}
@@ -65,9 +68,10 @@ fn sync(
 	let mut delete_mail = db.prepare("DELETE FROM mail WHERE mailbox = ? AND uid = ?")?;
 	let mut all_mail = db.prepare("SELECT uid, message_id FROM mail WHERE mailbox = ?")?;
 	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?)")?;
-	let mut maildirs: HashMap<&str, Maildir> = names.iter().map(|&x| (x, get_maildir(x).unwrap())).collect();
+	let mut maildirs: HashMap<&str, Maildir> = names.iter().map(|&x| (x.name(), get_maildir(x.name()).unwrap())).collect();
 	let mut to_remove: HashMap<&str, _> = HashMap::new();
-	for &mailbox in &names {
+	for &name in &names {
+		let mailbox = name.name();
 		let remote_mails = &remote[mailbox];
 
 		let mut to_fetch = Vec::new();
@@ -91,7 +95,7 @@ fn sync(
 				let maildir2 = &maildirs[mailbox];
 				maildir2.store_cur_from_path(&new_id, name)?;
 				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id])?;
-			} else {
+			} else if !name.attributes().iter().any(|x| *x == TRASH) { // do not fetch trashed mail
 				to_fetch.push(uid2);
 			}
 		}
@@ -112,7 +116,10 @@ fn sync(
 					maildir.store_cur_with_id(&id, mail_data)?;
 
 					let headers = parse_headers(&mail_data)?.0;
-					let message_id = headers.get_all_values("Message-ID").join(" ");
+					let mut message_id = headers.get_all_values("Message-ID").join(" ");
+					if message_id.is_empty() {
+						message_id = format!("<{}_{}_{}@no-message-id>", mailbox, uid_validity, uid);
+					}
 					let full_uid = ((uid_validity as u64) << 32) | uid as u64;
 					save_mail.execute(params![mailbox, store_i64(full_uid), message_id])?;
 				} else {
@@ -151,7 +158,7 @@ fn sync(
 		for (uid, message_id) in mails {
 			let uid1 = (uid >> 32) as u32;
 			let uid2 = ((uid << 32) >> 32) as u32;
-			if !remote_mails.contains_key(&message_id) {
+			if !remote_mails.contains_key(&message_id) && !message_id.ends_with("@no-message-id>") {
 				removed.push((uid1, uid2, uid));
 			}
 		}
