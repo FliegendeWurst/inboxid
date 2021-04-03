@@ -1,5 +1,8 @@
 use std::{array::IntoIter, cell::RefCell, cmp, collections::{HashMap, HashSet}, env};
 
+use cursive::{Cursive, CursiveExt};
+use cursive::views::{ListView, TextView};
+use cursive_tree_view::{Placement, TreeView};
 use inboxid::*;
 use itertools::Itertools;
 use mailparse::ParsedMail;
@@ -93,16 +96,21 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	roots.sort_unstable_by_key(|x| x.1.date);
 	let mails_printed = RefCell::new(HashSet::new());
 
+	let mut siv = Cursive::new();
+
+	let tree = RefCell::new(TreeView::new());
 	// recursive lambda
 	struct PrintThread<'a> {
-		f: &'a dyn Fn(&PrintThread, NodeIndex, usize)
+		f: &'a dyn Fn(&PrintThread, NodeIndex, Placement, usize)
 	}
-	let print_thread = |this: &PrintThread, node, depth| {
+	let print_thread = |this: &PrintThread, node, placement, parent| {
 		let mail = nodes_inv[&node];
-		if mails_printed.borrow().contains(mail) && depth == 0 {
+		if mails_printed.borrow().contains(mail) && placement == Placement::After {
 			return;
 		}
-		println!("{}{}", "   ".repeat(depth), mail.subject);
+		//println!("{}{}", "   ".repeat(depth), mail.subject);
+		let line = mail.subject.clone();
+		let entry = tree.borrow_mut().insert_item(line, placement, parent);
 		mails_printed.borrow_mut().insert(mail);
 		let mut replies = graph.neighbors_directed(node, EdgeDirection::Outgoing).collect_vec();
 		replies.sort_unstable_by_key(|&idx| {
@@ -115,14 +123,23 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			maximum
 		});
 		for r in replies {
-			(this.f)(this, r, depth + 1);
+			(this.f)(this, r, Placement::LastChild, entry.unwrap());
 		}
 	};
 	let print_thread = PrintThread { f: &print_thread };
 
+	let mut x = tree.borrow().len();
 	for root in roots {
-		(print_thread.f)(&print_thread, root.0, 0);
+		let y = tree.borrow().len();
+		(print_thread.f)(&print_thread, root.0, Placement::After, x);
+		x = y
 	}
+
+	siv.add_layer(tree.into_inner());
+
+	siv.add_global_callback('q', |s| s.quit());
+
+	siv.run();
 
 	Ok(())
 }
