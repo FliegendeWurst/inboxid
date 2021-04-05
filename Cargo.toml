@@ -25,4 +25,7 @@ subprocess = "0.2.6"
 mime2ext = "0.1.2"
 petgraph = "0.5.1"
 cursive = { version = "0.16.3", default-features = false, features = ["termion-backend"] }
-cursive_tree_view = "0.7.0"
+cursive_tree_view = { git = "https://github.com/FliegendeWurst/cursive_tree_view.git", branch = "master" }
+
+[profile.release]
+overflow-checks = true

@@ -6,7 +6,7 @@ use cursive::{Cursive, CursiveExt};
 use cursive::traits::Identifiable;
 use cursive::view::{Scrollable, SizeConstraint};
 use cursive::views::{LinearLayout, ResizedView, TextView};
-use cursive_tree_view::{Placement, TreeView};
+use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
 use itertools::Itertools;
@@ -25,8 +25,8 @@ fn main() -> Result<()> {
 		}
 	});
 	match result {
-	    Ok(res) => res,
-	    Err(_) => {
+		Ok(res) => res,
+		Err(_) => {
 			if let Err(e) = io::stderr().lock().write_all(&sink.lock().unwrap()) {
 				println!("{:?}", e);
 			}
@@ -62,7 +62,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		} else {
 			flags_display.push('*');
 		}
-		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from.clone(), mail.subject.clone(), mail.date_iso.clone()]));
+		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from(), mail.subject.clone(), mail.date_iso.clone()]));
 	}
 
 	let mut mails_by_id = HashMap::new();
@@ -251,15 +251,17 @@ struct MailPart {
 }
 
 impl Display for MailPart {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.part.ctype.mimetype)
-    }
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.part.ctype.mimetype)
+	}
 }
 
 impl From<&'static ParsedMail<'static>> for MailPart {
-    fn from(part: &'static ParsedMail<'static>) -> Self {
-        Self {
+	fn from(part: &'static ParsedMail<'static>) -> Self {
+		Self {
 			part
 		}
-    }
+	}
 }
+
+impl TreeEntry for MailPart {}

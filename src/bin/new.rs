@@ -26,7 +26,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 
 	let mut rows = Vec::new();
 	for mail in &mails {
-		rows.push(IntoIter::new([mail.from.clone(), mail.subject.clone(), mail.date_iso.clone()]));
+		rows.push(IntoIter::new([mail.from(), mail.subject.clone(), mail.date_iso.clone()]));
 	}
 
 	let mut ascii_table = AsciiTable::default();

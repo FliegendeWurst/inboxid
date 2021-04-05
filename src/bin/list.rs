@@ -40,7 +40,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		} else {
 			flags_display.push('*');
 		}
-		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from.clone(), mail.subject.clone(), mail.date_iso.clone()]));
+		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from(), mail.subject.clone(), mail.date_iso.clone()]));
 	}
 
 	let mut ascii_table = AsciiTable::default();

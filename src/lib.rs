@@ -1,10 +1,12 @@
-use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref};
+use std::{borrow::Cow, cmp, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref};
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use cursive::{theme::Style, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
+use cursive_tree_view::TreeEntry;
 use imap::{Session, types::Flag};
 use maildir::{MailEntry, Maildir};
-use mailparse::{MailHeaderMap, ParsedMail, dateparse};
+use mailparse::{MailHeaderMap, ParsedMail, SingleInfo, addrparse, dateparse};
 use petgraph::{Graph, graph::NodeIndex};
 use rusqlite::{Connection, params};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
@@ -96,7 +98,7 @@ pub struct EasyMail<'a> {
 	mail: Option<ParsedMail<'a>>,
 	pub id: MaildirID,
 	pub flags: String,
-	pub from: String,
+	from: SingleInfo,
 	pub subject: String,
 	pub date: DateTime<Local>,
 	pub date_iso: String,
@@ -108,7 +110,10 @@ impl EasyMail<'_> {
 		    mail: None,
 		    id: MaildirID::new(0, 0),
 			flags: "S".to_owned(),
-			from: String::new(),
+			from: SingleInfo {
+				display_name: None,
+				addr: String::new()
+			},
 		    subject,
 			date: Local.from_utc_datetime(&NaiveDateTime::from_timestamp(0, 0)),
 			date_iso: "????-??-??".to_owned()
@@ -117,6 +122,10 @@ impl EasyMail<'_> {
 
 	pub fn is_pseudo(&self) -> bool {
 		self.mail.is_none()
+	}
+
+	pub fn from(&self) -> String {
+		self.from.display_name.as_deref().unwrap_or_default().to_owned()
 	}
 
 	pub fn get_header(&self, header: &str) -> String {
@@ -151,7 +160,8 @@ impl Eq for EasyMail<'_> {}
 impl Hash for EasyMail<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
-		self.from.hash(state);
+		self.from.display_name.hash(state);
+		self.from.addr.hash(state);
 		self.subject.hash(state);
     }
 }
@@ -161,6 +171,76 @@ impl<'a> Deref for EasyMail<'a> {
 
 	fn deref(&self) -> &Self::Target {
 		&self.mail.as_ref().unwrap()
+	}
+}
+
+impl TreeEntry for &EasyMail<'_> {
+	fn display(&self, width: usize) -> SpannedString<Style> {
+		if self.is_pseudo() {
+			return self.subject.clone().into();
+		}
+		let from = self.from();
+		let mut line = self.subject.clone();
+		let mut i = width.saturating_sub(1 + from.len() + 1 + self.date_iso.len());
+		while i <= line.len() && !line.is_char_boundary(i) {
+			if i == 0 {
+				break;
+			}
+			i -= 1;
+		}
+		line.truncate(i);
+		let subj_len = line.len();
+		while line.len() < i {
+			line.push(' ');
+		}
+		line.push(' ');
+		line += &from;
+		line.push(' ');
+		line += &self.date_iso;
+
+		let spans = vec![
+			IndexedSpan {
+				content: IndexedCow::Borrowed {
+					start: 0,
+					end: subj_len
+				},
+				attr: Style::default(),
+				width: subj_len
+			},
+			IndexedSpan {
+				content: IndexedCow::Borrowed {
+					start: 0,
+					end: 0
+				},
+				attr: Style::default(),
+				width: line.len() - subj_len - from.len() - self.date_iso.len() - 1
+			},
+			IndexedSpan {
+				content: IndexedCow::Borrowed {
+					start: line.len() - self.date_iso.len() - 1 - from.len(),
+					end: line.len() - self.date_iso.len() - 1
+				},
+				attr: Style::default(),
+				width: from.len()
+			},
+			IndexedSpan {
+				content: IndexedCow::Borrowed {
+					start: 0,
+					end: 0
+				},
+				attr: Style::default(),
+				width: 1
+			},
+			IndexedSpan {
+				content: IndexedCow::Borrowed {
+					start: line.len() - self.date_iso.len(),
+					end: line.len()
+				},
+				attr: Style::default(),
+				width: self.date_iso.len()
+			},
+		];
+		SpannedString::with_spans(&line, spans)
 	}
 }
 
@@ -232,7 +312,7 @@ impl MaildirExtension for Maildir {
 			let flags = maile.flags().to_owned();
 			let mail = maile.parsed()?;
 			let headers = mail.get_headers();
-			let from = headers.get_all_values("From").join(" ");
+			let from = addrparse(&headers.get_all_values("From").join(" "))?.extract_single_info().context("failed to extract from")?;
 			let subject = headers.get_all_values("Subject").join(" ");
 			let date = headers.get_all_values("Date").join(" ");
 			let date = dateparse(&date).map(|x|
@@ -259,7 +339,7 @@ impl MaildirExtension for Maildir {
 			let flags = maile.flags().to_owned();
 			let mail = maile.parsed()?;
 			let headers = mail.get_headers();
-			let from = headers.get_all_values("From").join(" ");
+			let from = addrparse(&headers.get_all_values("From").join(" "))?.extract_single_info().context("failed to extract from")?;
 			let subject = headers.get_all_values("Subject").join(" ");
 			let date = headers.get_all_values("Date").join(" ");
 			let date = dateparse(&date).map(|x|
