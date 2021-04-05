@@ -1,10 +1,11 @@
-use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::Debug, fs, hash::Hash, io, net::TcpStream, ops::Deref};
+use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref};
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use imap::{Session, types::Flag};
 use maildir::{MailEntry, Maildir};
 use mailparse::{MailHeaderMap, ParsedMail, dateparse};
+use petgraph::{Graph, graph::NodeIndex};
 use rusqlite::{Connection, params};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
 
@@ -114,6 +115,10 @@ impl EasyMail<'_> {
 		}
 	}
 
+	pub fn is_pseudo(&self) -> bool {
+		self.mail.is_none()
+	}
+
 	pub fn get_header(&self, header: &str) -> String {
 		self.get_headers().get_all_values(header).join(" ")
 	}
@@ -126,6 +131,12 @@ impl EasyMail<'_> {
 impl Debug for EasyMail<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Mail[ID={},Subject={:?}]", self.id.uid, self.subject)
+    }
+}
+
+impl Display for EasyMail<'_> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.subject)
     }
 }
 
@@ -154,11 +165,25 @@ impl<'a> Deref for EasyMail<'a> {
 }
 
 pub trait MailExtension {
+	fn get_tree_structure<'a>(&'a self, graph: &mut Graph<&'a ParsedMail<'a>, ()>, parent: Option<NodeIndex>);
 	fn print_tree_structure(&self, depth: usize, counter: &mut usize);
 	fn get_tree_part(&self, counter: &mut usize, target: usize) -> Option<&ParsedMail>;
 }
 
 impl MailExtension for ParsedMail<'_> {
+	fn get_tree_structure<'a>(&'a self, graph: &mut Graph<&'a ParsedMail<'a>, ()>, parent: Option<NodeIndex>) {
+		let parent = if parent.is_none() {
+			graph.add_node(&self)
+		} else {
+			parent.unwrap()
+		};
+		for mail in &self.subparts {
+			let new = graph.add_node(mail);
+			graph.add_edge(parent, new, ());
+			mail.get_tree_structure(graph, Some(new));
+		}
+	}
+
 	fn print_tree_structure(&self, depth: usize, counter: &mut usize) {
 		if depth == 0 {
 			println!("{}", self.ctype.mimetype);
@@ -188,6 +213,7 @@ pub trait MaildirExtension {
 	fn get_file(&self, name: &str) -> std::result::Result<String, io::Error>;
 	fn save_file(&self, name: &str, content: &str) -> std::result::Result<(), io::Error>;
 	fn get_mails<'a>(&self, entries: &'a mut [MailEntry]) -> Result<Vec<EasyMail<'a>>>;
+	fn get_mails2<'a>(&self, entries: &'a mut [&'a mut MailEntry]) -> Result<Vec<EasyMail<'a>>>;
 }
 
 impl MaildirExtension for Maildir {
@@ -200,6 +226,33 @@ impl MaildirExtension for Maildir {
 	}
 
 	fn get_mails<'a>(&self, entries: &'a mut [MailEntry]) -> Result<Vec<EasyMail<'a>>> {
+		let mut mails = Vec::new();
+		for maile in entries {
+			let id = maile.id().try_into()?;
+			let flags = maile.flags().to_owned();
+			let mail = maile.parsed()?;
+			let headers = mail.get_headers();
+			let from = headers.get_all_values("From").join(" ");
+			let subject = headers.get_all_values("Subject").join(" ");
+			let date = headers.get_all_values("Date").join(" ");
+			let date = dateparse(&date).map(|x|
+				Local.from_utc_datetime(&NaiveDateTime::from_timestamp(x, 0))
+			)?;
+			mails.push(EasyMail {
+				mail: Some(mail),
+				flags,
+				id,
+				from,
+				subject,
+				date_iso: date.format("%Y-%m-%d %H:%M").to_string(),
+				date,
+			});
+		}
+		Ok(mails)
+	}
+
+	// TODO this should be unified with the above
+	fn get_mails2<'a>(&self, entries: &'a mut [&'a mut MailEntry]) -> Result<Vec<EasyMail<'a>>> {
 		let mut mails = Vec::new();
 		for maile in entries {
 			let id = maile.id().try_into()?;
