@@ -2,17 +2,17 @@
 
 use std::{array::IntoIter, cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
 
-use cursive::{Cursive, CursiveExt};
+use cursive::{Cursive, CursiveExt, Vec2};
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
 use cursive::view::{Scrollable, SizeConstraint, View};
-use cursive::views::{Button, Checkbox, LinearLayout, OnEventView, ResizedView, TextView};
+use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
 use itertools::Itertools;
 use log::error;
-use mailparse::ParsedMail;
+use mailparse::{MailHeaderMap, ParsedMail};
 use parking_lot::RwLock;
 use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::{Dfs, IntoNodeReferences}};
 
@@ -214,12 +214,16 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				view.set_content(mail.get_body().unwrap());
 			});
 		}
+		siv.call_on_name("mail_info", |view: &mut MailInfoView| {
+			view.set(item);
+		});
 	});
 	tree.set_on_submit(|siv, _row| {
 		siv.focus_name("mail").unwrap();
 	});
 	let tree = tree.with_name("tree").scrollable();
 	let tree_resized = ResizedView::new(SizeConstraint::AtMost(120), SizeConstraint::Free, tree);
+	let mail_info = MailInfoView::new().with_name("mail_info");
 	let mail_content = TextView::new("").with_name("mail").scrollable();
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
@@ -234,8 +238,10 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		siv.focus_name("mail").unwrap();
 	});
 	let mail_wrapper = LinearLayout::vertical()
+		.child(ResizedView::with_full_width(Panel::new(mail_info).title("Mail")))
 		.child(ResizedView::with_full_height(mail_content))
-		.child(mail_part_select.with_name("part_select"));
+		.child(Panel::new(mail_part_select.with_name("part_select"))
+			.title("Multipart selection"));
 	let mail_content_resized = ResizedView::new(SizeConstraint::Full, SizeConstraint::Free, mail_wrapper);
 	let main = LinearLayout::horizontal()
 		.child(tree_resized)
@@ -303,3 +309,42 @@ impl From<&'static ParsedMail<'static>> for MailPart {
 }
 
 impl TreeEntry for MailPart {}
+
+struct MailInfoView {
+	email: Option<&'static ParsedMail<'static>>
+}
+
+impl MailInfoView {
+	fn new() -> Self {
+		Self {
+			email: None
+		}
+	}
+
+	fn set(&mut self, mail: &'static ParsedMail<'static>) {
+		self.email = Some(mail);
+	}
+}
+
+const HEADERS_TO_DISPLAY: &[&str] = &["From", "Subject", "To"];
+
+impl View for MailInfoView {
+    fn draw(&self, printer: &cursive::Printer) {
+		if let Some(mail) = self.email {
+			let mut y = 0;
+			for header in HEADERS_TO_DISPLAY {
+				let mut x = 0;
+				printer.print((x, y), header);
+				x += header.len(/* ASCII-only */);
+				printer.print((x, y), ": ");
+				x += 2;
+        		printer.print((x, y), &mail.headers.get_all_values(header).join(" "));
+				y += 1;
+			}
+		}
+    }
+
+	fn required_size(&mut self, _constraint: Vec2) -> Vec2 {
+		(42, HEADERS_TO_DISPLAY.len()).into()
+	}
+}
