@@ -3,17 +3,21 @@
 use std::{array::IntoIter, cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
 
 use cursive::{Cursive, CursiveExt};
+use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
-use cursive::view::{Scrollable, SizeConstraint};
-use cursive::views::{LinearLayout, ResizedView, TextView};
+use cursive::view::{Scrollable, SizeConstraint, View};
+use cursive::views::{Button, Checkbox, LinearLayout, OnEventView, ResizedView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
 use itertools::Itertools;
+use log::error;
 use mailparse::ParsedMail;
+use parking_lot::RwLock;
 use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::{Dfs, IntoNodeReferences}};
 
 fn main() -> Result<()> {
+	load_config();
 	let sink = Arc::new(Mutex::new(Vec::new()));
 	std::io::set_output_capture(Some(sink.clone()));
 	let result = std::panic::catch_unwind(|| {
@@ -237,6 +241,40 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		.child(tree_resized)
 		.child(mail_content_resized);
 	siv.add_fullscreen_layer(ResizedView::with_full_screen(main));
+
+	let mut setup = LinearLayout::vertical();
+	{
+	let config = CONFIG.get().unwrap().read();
+	let show_email_addresses = Checkbox::new()
+		.with_checked(config.browse.show_email_addresses)
+		.on_change(|_siv, checked| {
+		CONFIG.get().unwrap().write().browse.show_email_addresses = checked;
+	});
+	setup.add_child(
+		LinearLayout::horizontal()
+		.child(show_email_addresses)
+		.child(TextView::new(" Show email addresses"))
+	);
+	}
+	// most horrible hack
+	let setup: Arc<RwLock<Option<Box<dyn View>>>> = Arc::new(RwLock::new(Some(Box::new(ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, setup)))));
+	let setup2 = Arc::clone(&setup);
+	let setup_view: ResizedView<LinearLayout> = *setup.write().take().unwrap().as_boxed_any().downcast().unwrap();
+	let setup_view = OnEventView::new(setup_view)
+		.on_event(Event::Key(Key::F10), move |s| {
+		let setup = s.pop_layer().unwrap();
+		*setup2.write() = Some(setup);
+		if let Err(e) = CONFIG.get().unwrap().read().save() {
+			error!("failed to save config {:?}", e);
+		}
+	});
+	*setup.write() = Some(Box::new(setup_view));
+
+	let setup2 = Arc::clone(&setup);
+	siv.add_global_callback(Event::Key(Key::F2), move |s| {
+		let setup = setup2.write().take().unwrap();
+		s.add_fullscreen_layer(setup);
+	});
 
 	siv.add_global_callback('q', |s| s.quit());
 

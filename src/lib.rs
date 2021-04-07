@@ -1,15 +1,20 @@
-use std::{borrow::Cow, cmp, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref};
+use std::{borrow::Cow, cmp, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref, path::PathBuf};
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use cursive::{theme::Style, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
 use cursive_tree_view::TreeEntry;
+use directories_next::ProjectDirs;
 use imap::{Session, types::Flag};
+use log::info;
 use maildir::{MailEntry, Maildir};
 use mailparse::{MailHeaderMap, ParsedMail, SingleInfo, addrparse, dateparse};
+use once_cell::sync::OnceCell;
+use parking_lot::RwLock;
 use petgraph::{Graph, graph::NodeIndex};
 use rusqlite::{Connection, params};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
+use serde_derive::{Deserialize, Serialize};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type ImapSession = Session<StreamOwned<ClientSession, TcpStream>>;
@@ -107,14 +112,14 @@ pub struct EasyMail<'a> {
 impl EasyMail<'_> {
 	pub fn new_pseudo(subject: String) -> Self {
 		Self {
-		    mail: None,
-		    id: MaildirID::new(0, 0),
+			mail: None,
+			id: MaildirID::new(0, 0),
 			flags: "S".to_owned(),
 			from: SingleInfo {
 				display_name: None,
 				addr: String::new()
 			},
-		    subject,
+			subject,
 			date: Local.from_utc_datetime(&NaiveDateTime::from_timestamp(0, 0)),
 			date_iso: "????-??-??".to_owned()
 		}
@@ -125,7 +130,13 @@ impl EasyMail<'_> {
 	}
 
 	pub fn from(&self) -> String {
-		self.from.display_name.as_deref().unwrap_or_default().to_owned()
+		let name = self.from.display_name.as_deref().unwrap_or_default();
+		if let Some(config) = CONFIG.get() {
+			if config.read().browse.show_email_addresses {
+				return format!("{} <{}>", name, self.from.addr);
+			}
+		}
+		name.to_owned()
 	}
 
 	pub fn get_header(&self, header: &str) -> String {
@@ -138,32 +149,32 @@ impl EasyMail<'_> {
 }
 
 impl Debug for EasyMail<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Mail[ID={},Subject={:?}]", self.id.uid, self.subject)
-    }
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "Mail[ID={},Subject={:?}]", self.id.uid, self.subject)
+	}
 }
 
 impl Display for EasyMail<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.subject)
-    }
+		write!(f, "{}", self.subject)
+	}
 }
 
 impl PartialEq for EasyMail<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id && self.from == other.from && self.subject == other.subject
-    }
+	fn eq(&self, other: &Self) -> bool {
+		self.id == other.id && self.from == other.from && self.subject == other.subject
+	}
 }
 
 impl Eq for EasyMail<'_> {}
 
 impl Hash for EasyMail<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.id.hash(state);
 		self.from.display_name.hash(state);
 		self.from.addr.hash(state);
 		self.subject.hash(state);
-    }
+	}
 }
 
 impl<'a> Deref for EasyMail<'a> {
@@ -386,4 +397,81 @@ pub fn get_imap_session() -> Result<ImapSession> {
 	let password = env::var("MAILPASSWORD").expect("missing envvar MAILPASSWORD");
 	let port = 993;
 	connect(&host, port, &user, &password)
+}
+
+pub fn load_config() {
+	CONFIG.get_or_init(|| {
+		let config = Config::load_from_fs();
+		let cfg = match config {
+			Ok(config) => if let Some(config) = config {
+				config.into()
+			} else {
+				Config::default().into()
+			},
+			Err(e) => panic!("failed to load configuration: {:?}", e)
+		};
+		info!("config {:?}", cfg);
+		cfg
+	});
+}
+
+pub static CONFIG: OnceCell<RwLock<Config>> = OnceCell::new();
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Config {
+	#[serde(default)]
+	pub browse: Browse
+}
+
+fn get_paths() -> Result<ProjectDirs> {
+	Ok(directories_next::ProjectDirs::from("", "", "Inboxid").context("unable to determine configuration directory")?)
+}
+
+fn get_config_path() -> Result<PathBuf> {
+	let paths = get_paths()?;
+	Ok(paths.config_dir().join("config.toml"))
+}
+
+impl Config {
+	fn load_from_fs() -> Result<Option<Self>> {
+		let config = get_config_path()?;
+		if config.exists() {
+			let content = fs::read_to_string(&config)?;
+			Ok(Some(toml::from_str(&content)?))
+		} else {
+			Ok(None)
+		}
+	}
+
+	pub fn save(&self) -> Result<()> {
+		let config = get_config_path()?;
+		fs::create_dir_all(config.parent().unwrap())?;
+		fs::write(config, toml::to_string(&self)?)?;
+		Ok(())
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			browse: Browse {
+				show_email_addresses: false
+			}
+		}
+	}
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub struct Browse {
+	#[serde(default)]
+	pub show_email_addresses: bool
+}
+
+impl Default for Browse {
+	fn default() -> Self {
+		Self {
+			show_email_addresses: Default::default()
+		}
+	}
 }
