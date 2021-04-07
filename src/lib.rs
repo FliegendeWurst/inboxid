@@ -1,8 +1,8 @@
-use std::{borrow::Cow, cmp, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref, path::PathBuf};
+use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref, path::PathBuf};
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-use cursive::{theme::Style, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
+use cursive::{theme::{Effect, Style}, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
 use cursive_tree_view::TreeEntry;
 use directories_next::ProjectDirs;
 use imap::{Session, types::Flag};
@@ -14,6 +14,8 @@ use parking_lot::RwLock;
 use petgraph::{Graph, graph::NodeIndex};
 use rusqlite::{Connection, params};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
+use serde::{Deserializer, Serializer};
+use serde::de::Visitor;
 use serde_derive::{Deserialize, Serialize};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -209,13 +211,14 @@ impl TreeEntry for &EasyMail<'_> {
 		line.push(' ');
 		line += &self.date_iso;
 
+		let style = if self.flags.contains('S') { Style::default() } else { CONFIG.get().unwrap().read().browse.unread_style };
 		let spans = vec![
 			IndexedSpan {
 				content: IndexedCow::Borrowed {
 					start: 0,
 					end: subj_len
 				},
-				attr: Style::default(),
+				attr: style,
 				width: subj_len
 			},
 			IndexedSpan {
@@ -223,7 +226,7 @@ impl TreeEntry for &EasyMail<'_> {
 					start: 0,
 					end: 0
 				},
-				attr: Style::default(),
+				attr: style,
 				width: line.len() - subj_len - from.len() - self.date_iso.len() - 1
 			},
 			IndexedSpan {
@@ -231,7 +234,7 @@ impl TreeEntry for &EasyMail<'_> {
 					start: line.len() - self.date_iso.len() - 1 - from.len(),
 					end: line.len() - self.date_iso.len() - 1
 				},
-				attr: Style::default(),
+				attr: style,
 				width: from.len()
 			},
 			IndexedSpan {
@@ -239,7 +242,7 @@ impl TreeEntry for &EasyMail<'_> {
 					start: 0,
 					end: 0
 				},
-				attr: Style::default(),
+				attr: style,
 				width: 1
 			},
 			IndexedSpan {
@@ -247,7 +250,7 @@ impl TreeEntry for &EasyMail<'_> {
 					start: line.len() - self.date_iso.len(),
 					end: line.len()
 				},
-				attr: Style::default(),
+				attr: style,
 				width: self.date_iso.len()
 			},
 		];
@@ -454,9 +457,7 @@ impl Config {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
-			browse: Browse {
-				show_email_addresses: false
-			}
+			browse: Browse::default()
 		}
 	}
 }
@@ -465,13 +466,71 @@ impl Default for Config {
 #[serde(rename_all = "kebab-case")]
 pub struct Browse {
 	#[serde(default)]
-	pub show_email_addresses: bool
+	pub show_email_addresses: bool,
+	#[serde(default = "default_unread_style")]
+	#[serde(deserialize_with = "deserialize_style")]
+	#[serde(serialize_with = "serialize_style")]
+	pub unread_style: Style,
 }
 
 impl Default for Browse {
 	fn default() -> Self {
 		Self {
-			show_email_addresses: Default::default()
+			show_email_addresses: Default::default(),
+			unread_style: default_unread_style()
 		}
 	}
+}
+
+pub fn style_to_str(x: &Style) -> &'static str {
+	match x.effects.iter().next() {
+		Some(x) => match x {
+			Effect::Simple => "simple",
+			Effect::Reverse => "reverse",
+			Effect::Bold => "bold",
+			Effect::Italic => "italic",
+			Effect::Strikethrough => "strikethrough",
+			Effect::Underline => "underline",
+			Effect::Blink => "blink"
+		},
+		None => "none"
+	}
+}
+
+fn serialize_style<S>(x: &Style, s: S) -> std::result::Result<S::Ok, S::Error> where S: Serializer {
+	s.serialize_str(style_to_str(x))
+}
+
+fn deserialize_style<'de, D>(de: D) -> std::result::Result<Style, D::Error> where D: Deserializer<'de> {
+	struct StrVisitor;
+	impl<'de> Visitor<'de> for StrVisitor {
+		type Value = Style;
+
+		fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+			formatter.write_str("style specification")
+		}
+
+		fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
+			parse_effect(v).map(Into::into).ok_or(serde::de::Error::invalid_value(serde::de::Unexpected::Str(v), &self))
+		}
+	}
+	let vis = StrVisitor;
+	de.deserialize_str(vis)
+}
+
+pub fn parse_effect(effect: &str) -> Option<Effect> {
+	match effect {
+		"simple" => Some(Effect::Simple),
+		"reverse" => Some(Effect::Reverse),
+		"bold" => Some(Effect::Bold),
+		"italic" => Some(Effect::Italic),
+		"strikethrough" => Some(Effect::Strikethrough),
+		"underline" => Some(Effect::Underline),
+		"blink" => Some(Effect::Blink),
+		_ => None
+	}
+}
+
+fn default_unread_style() -> Style {
+	Effect::Reverse.into()
 }

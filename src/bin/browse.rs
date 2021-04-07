@@ -3,10 +3,11 @@
 use std::{array::IntoIter, cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
 
 use cursive::{Cursive, CursiveExt, Vec2};
+use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
 use cursive::view::{Scrollable, SizeConstraint, View};
-use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, TextView};
+use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, SelectView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
@@ -261,9 +262,20 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		.child(show_email_addresses)
 		.child(TextView::new(" Show email addresses"))
 	);
+	let mut style_select = SelectView::new().h_align(HAlign::Left);
+	let values = ["simple", "reverse", "bold", "italic", "strikethrough", "underline", "blink"];
+	for &x in &values {
+		style_select.add_item(x, x);
+	}
+	let current = style_to_str(&config.browse.unread_style);
+	style_select.set_selection(values.iter().position(|&x| x == current).unwrap());
+	style_select.set_on_select(|_s, style| {
+		CONFIG.get().unwrap().write().browse.unread_style = parse_effect(style).unwrap().into();
+	});
+	setup.add_child(ResizedView::new(SizeConstraint::AtLeast(28), SizeConstraint::Free, Panel::new(style_select).title("Unread message styling")));
 	}
 	// most horrible hack
-	let setup: Arc<RwLock<Option<Box<dyn View>>>> = Arc::new(RwLock::new(Some(Box::new(ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, setup)))));
+	let setup: Arc<RwLock<Option<Box<dyn View>>>> = Arc::new(RwLock::new(Some(Box::new(ResizedView::new(SizeConstraint::Free, SizeConstraint::Full, setup)))));
 	let setup2 = Arc::clone(&setup);
 	let setup_view: ResizedView<LinearLayout> = *setup.write().take().unwrap().as_boxed_any().downcast().unwrap();
 	let setup_view = OnEventView::new(setup_view)
@@ -274,7 +286,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			error!("failed to save config {:?}", e);
 		}
 	});
-	*setup.write() = Some(Box::new(setup_view));
+	*setup.write() = Some(Box::new(Panel::new(setup_view).title("Settings")));
 
 	let setup2 = Arc::clone(&setup);
 	siv.add_global_callback(Event::Key(Key::F2), move |s| {
