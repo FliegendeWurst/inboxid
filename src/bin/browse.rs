@@ -6,7 +6,7 @@ use cursive::{Cursive, CursiveExt, Vec2};
 use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
-use cursive::view::{Scrollable, SizeConstraint, View};
+use cursive::view::{Scrollable, ScrollStrategy, SizeConstraint, View};
 use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, SelectView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
@@ -29,12 +29,12 @@ fn main() -> Result<()> {
 			show_listing("INBOX")
 		}
 	});
+	if let Err(e) = io::stderr().lock().write_all(&sink.lock().unwrap()) {
+		println!("{:?}", e);
+	}
 	match result {
 		Ok(res) => res,
 		Err(_) => {
-			if let Err(e) = io::stderr().lock().write_all(&sink.lock().unwrap()) {
-				println!("{:?}", e);
-			}
 			Err("panicked".into()) // not displayed
 		}
 	}
@@ -121,7 +121,15 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		}
 	}
 	let mut roots = graph.node_references().filter(|x| graph.neighbors_directed(x.0, EdgeDirection::Incoming).count() == 0).collect_vec();
-	roots.sort_unstable_by_key(|x| x.1.date);
+	roots.sort_by_cached_key(|&(idx, mail)| {
+		let mut maximum = mail.date;
+		let mut dfs = Dfs::new(&graph, idx);
+		while let Some(idx) = dfs.next(&graph) {
+			let other = &nodes_inv[&idx];
+			maximum = cmp::max(maximum, other.date);
+		}
+		maximum
+	});
 	let mails_printed = RefCell::new(HashSet::new());
 
 	let mut siv = Cursive::new();
@@ -163,7 +171,14 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	}
 
 	let mut tree = tree.into_inner();
-	tree.set_on_select(|siv, row| {
+	let (tree_present, last_row) = if tree.len() != 0 {
+		let last_row = tree.len() - 1;
+		tree.set_selected_row(last_row);
+		(true, last_row)
+	} else {
+		(false, 0)
+	};
+	let tree_on_select = |siv: &mut Cursive, row| {
 		let item = siv.call_on_name("tree", |tree: &mut TreeView<&EasyMail>| {
 			*tree.borrow_item(row).unwrap()
 		}).unwrap();
@@ -218,11 +233,13 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		siv.call_on_name("mail_info", |view: &mut MailInfoView| {
 			view.set(item);
 		});
-	});
+	};
+	tree.set_on_select(tree_on_select);
 	tree.set_on_submit(|siv, _row| {
 		siv.focus_name("mail").unwrap();
 	});
-	let tree = tree.with_name("tree").scrollable();
+	let mut tree = tree.with_name("tree").scrollable();
+	tree.set_scroll_strategy(ScrollStrategy::StickToBottom);
 	let tree_resized = ResizedView::new(SizeConstraint::AtMost(120), SizeConstraint::Free, tree);
 	let mail_info = MailInfoView::new().with_name("mail_info");
 	let mail_content = TextView::new("").with_name("mail").scrollable();
@@ -248,6 +265,9 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		.child(tree_resized)
 		.child(mail_content_resized);
 	siv.add_fullscreen_layer(ResizedView::with_full_screen(main));
+	if tree_present {
+		tree_on_select(&mut siv, last_row); // show selected mail
+	}
 
 	let mut setup = LinearLayout::vertical();
 	{
