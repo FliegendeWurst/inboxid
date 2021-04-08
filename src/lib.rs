@@ -52,7 +52,8 @@ pub fn get_db() -> Result<Connection> {
 	CREATE TABLE IF NOT EXISTS mail(
 		mailbox STRING NOT NULL,
 		uid INTEGER NOT NULL,
-		message_id STRING NOT NULL
+		message_id STRING NOT NULL,
+		flags STRING NOT NULL
 	)", params![])?;
 
 	Ok(conn)
@@ -64,7 +65,7 @@ pub fn gen_id(uid_validity: u32, uid: u32) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MaildirID {
-	uid_validity: u32,
+	pub uid_validity: u32,
 	pub uid: u32,
 }
 
@@ -105,7 +106,8 @@ pub struct EasyMail<'a> {
 	mail: Option<ParsedMail<'a>>,
 	pub id: MaildirID,
 	pub flags: String,
-	from: SingleInfo,
+	from: Option<SingleInfo>,
+	from_raw: String,
 	pub subject: String,
 	pub date: DateTime<Local>,
 	pub date_iso: String,
@@ -117,10 +119,8 @@ impl EasyMail<'_> {
 			mail: None,
 			id: MaildirID::new(0, 0),
 			flags: "S".to_owned(),
-			from: SingleInfo {
-				display_name: None,
-				addr: String::new()
-			},
+			from: None,
+			from_raw: String::new(),
 			subject,
 			date: Local.from_utc_datetime(&NaiveDateTime::from_timestamp(0, 0)),
 			date_iso: "????-??-??".to_owned()
@@ -132,13 +132,17 @@ impl EasyMail<'_> {
 	}
 
 	pub fn from(&self) -> String {
-		let name = self.from.display_name.as_deref().unwrap_or_default();
-		if let Some(config) = CONFIG.get() {
-			if config.read().browse.show_email_addresses {
-				return format!("{} <{}>", name, self.from.addr);
+		if let Some(from) = self.from.as_ref() {
+			let name = from.display_name.as_deref().unwrap_or_default();
+			if let Some(config) = CONFIG.get() {
+				if config.read().browse.show_email_addresses {
+					return format!("{} <{}>", name, from.addr);
+				}
 			}
+			name.to_owned()
+		} else {
+			self.from_raw.clone()
 		}
-		name.to_owned()
 	}
 
 	pub fn get_header(&self, header: &str) -> String {
@@ -173,8 +177,10 @@ impl Eq for EasyMail<'_> {}
 impl Hash for EasyMail<'_> {
 	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
 		self.id.hash(state);
-		self.from.display_name.hash(state);
-		self.from.addr.hash(state);
+		if let Some(from) = self.from.as_ref() {
+			from.display_name.hash(state);
+			from.addr.hash(state);
+		}
 		self.subject.hash(state);
 	}
 }
@@ -326,7 +332,8 @@ impl MaildirExtension for Maildir {
 			let flags = maile.flags().to_owned();
 			let mail = maile.parsed()?;
 			let headers = mail.get_headers();
-			let from = addrparse(&headers.get_all_values("From").join(" "))?.extract_single_info().context("failed to extract from")?;
+			let from_raw = headers.get_all_values("From").join(" ");
+			let from = addrparse(&from_raw).map(|x| x.extract_single_info()).ok().flatten();
 			let subject = headers.get_all_values("Subject").join(" ");
 			let date = headers.get_all_values("Date").join(" ");
 			let date = dateparse(&date).map(|x|
@@ -337,6 +344,7 @@ impl MaildirExtension for Maildir {
 				flags,
 				id,
 				from,
+				from_raw,
 				subject,
 				date_iso: date.format("%Y-%m-%d %H:%M").to_string(),
 				date,
@@ -353,7 +361,8 @@ impl MaildirExtension for Maildir {
 			let flags = maile.flags().to_owned();
 			let mail = maile.parsed()?;
 			let headers = mail.get_headers();
-			let from = addrparse(&headers.get_all_values("From").join(" "))?.extract_single_info().context("failed to extract from")?;
+			let from_raw = headers.get_all_values("From").join(" ");
+			let from = addrparse(&from_raw).map(|x| x.extract_single_info()).ok().flatten();
 			let subject = headers.get_all_values("Subject").join(" ");
 			let date = headers.get_all_values("Date").join(" ");
 			let date = dateparse(&date).map(|x|
@@ -364,6 +373,7 @@ impl MaildirExtension for Maildir {
 				flags,
 				id,
 				from,
+				from_raw,
 				subject,
 				date_iso: date.format("%Y-%m-%d %H:%M").to_string(),
 				date,
@@ -533,4 +543,23 @@ pub fn parse_effect(effect: &str) -> Option<Effect> {
 
 fn default_unread_style() -> Style {
 	Effect::Reverse.into()
+}
+
+pub fn imap_flags_to_maildir(mut f: String, flags: &[Flag]) -> String {
+	if flags.contains(&Flag::Seen) {
+		f.push('S');
+	} else {
+		f = f.replace('S', "");
+	}
+	if flags.contains(&Flag::Answered) {
+		f.push('R');
+	} else {
+		f = f.replace('R', "");
+	}
+	if flags.contains(&Flag::Flagged) {
+		f.push('F');
+	} else {
+		f = f.replace('F', "");
+	}
+	f
 }

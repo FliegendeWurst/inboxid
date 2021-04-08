@@ -64,45 +64,60 @@ fn sync(
 		remote.insert(mailbox, mails);
 	}
 
-	let mut have_mail = db.prepare("SELECT mailbox, uid FROM mail WHERE message_id = ?")?;
+	let mut have_mail = db.prepare("SELECT mailbox, uid, flags FROM mail WHERE message_id = ?")?;
 	let mut delete_mail = db.prepare("DELETE FROM mail WHERE mailbox = ? AND uid = ?")?;
 	let mut all_mail = db.prepare("SELECT uid, message_id FROM mail WHERE mailbox = ?")?;
-	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?)")?;
+	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?,?)")?;
 	let mut maildirs: HashMap<&str, Maildir> = names.iter().map(|&x| (x.name(), get_maildir(x.name()).unwrap())).collect();
 	let mut to_remove: HashMap<&str, _> = HashMap::new();
 	for &name in &names {
 		let mailbox = name.name();
-		let remote_mails = &remote[mailbox];
+		let remote_mails = remote.get_mut(mailbox).unwrap();
+		let resp = imap_session.examine(mailbox)?;
+		let uid_validity = resp.uid_validity.unwrap();
 
 		let mut to_fetch = Vec::new();
-		for message_id in remote_mails.keys() {
-			let (uid1, uid2, full_uid, ref _flags) = remote_mails[message_id];
-			let local = have_mail.query_map(params![message_id], |row| Ok((row.get::<_, String>(0)?, load_i64(row.get::<_, i64>(1)?))))?.map(|x| x.unwrap()).collect_vec();
-			if local.iter().any(|x| x.0 == mailbox && x.1 == full_uid) {
+		for (message_id, entry) in remote_mails.iter_mut() {
+			let (uid1, uid2, full_uid, remote_flags) = entry;
+			let local = have_mail.query_map(params![message_id], |row| Ok((
+				row.get::<_, String>(0)?,
+				load_i64(row.get::<_, i64>(1)?),
+				row.get::<_, String>(2)?
+			)))?.map(|x| x.unwrap()).collect_vec();
+			if let Some((_, full_uid, flags)) = local.iter().filter(|x| x.0 == mailbox && x.1 == *full_uid).next() {
+				let uid = (full_uid << 32) >> 32;
+				let local_s = flags.contains('S');
+				let local_u = flags.contains('U');
+				let remote_s = remote_flags.contains(&Flag::Seen);
+				if local_s && !remote_s {
+					imap_session.uid_store(uid.to_string(), "+FLAGS.SILENT (\\Seen)")?;
+					remote_flags.push(Flag::Seen);
+				} else if local_u && remote_s {
+					imap_session.uid_store(uid.to_string(), "-FLAGS.SILENT (\\Seen)")?;
+					remote_flags.remove(remote_flags.iter().position(|x| x == &Flag::Seen).unwrap());
+				}
 				continue;
 			}
 			if !local.is_empty() {
-				let (inbox, full_uid) = &local[0];
+				let (inbox, full_uid, flags) = &local[0];
 				let local_uid1 = (full_uid >> 32) as u32;
 				let local_uid2 = ((full_uid << 32) >> 32) as u32;
 				let local_id = gen_id(local_uid1, local_uid2);
-				let new_uid = MaildirID::new(uid1, uid2);
+				let new_uid = MaildirID::new(*uid1, *uid2);
 				let new_id = new_uid.to_string();
 				// hardlink mail
 				let maildir1 = &maildirs[&**inbox];
 				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
 				let name = maildir1.find_filename(&local_id).unwrap();
 				let maildir2 = &maildirs[mailbox];
-				maildir2.store_cur_from_path(&new_id, name)?;
-				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id])?;
+				maildir2.store_cur_from_path(&new_id, flags, name)?;
+				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id, flags])?;
 			} else if !name.attributes().iter().any(|x| *x == TRASH) { // do not fetch trashed mail
 				to_fetch.push(uid2);
 			}
 		}
 		if !to_fetch.is_empty() {
 			let maildir = &maildirs[mailbox];
-			let resp = imap_session.examine(mailbox)?;
-			let uid_validity = resp.uid_validity.unwrap();
 
 			let fetch_range = to_fetch.into_iter().map(|x| x.to_string()).join(",");
 			let fetch = imap_session.uid_fetch(fetch_range, "RFC822")?;
@@ -113,7 +128,8 @@ fn sync(
 				let id = gen_id(uid_validity, uid);
 				if !maildir.exists(&id) {
 					let mail_data = mail.body().unwrap_or_default();
-					maildir.store_cur_with_id(&id, mail_data)?;
+					let flags = imap_flags_to_maildir("".into(), mail.flags());
+					maildir.store_cur_with_id_flags(&id, &flags, mail_data)?;
 
 					let headers = parse_headers(&mail_data)?.0;
 					let mut message_id = headers.get_all_values("Message-ID").join(" ");
@@ -121,7 +137,7 @@ fn sync(
 						message_id = format!("<{}_{}_{}@no-message-id>", mailbox, uid_validity, uid);
 					}
 					let full_uid = ((uid_validity as u64) << 32) | uid as u64;
-					save_mail.execute(params![mailbox, store_i64(full_uid), message_id])?;
+					save_mail.execute(params![mailbox, store_i64(full_uid), message_id, flags])?;
 				} else {
 					println!("warning: DB outdated, downloaded mail again");
 				}
@@ -132,22 +148,8 @@ fn sync(
 			let (uid1, uid2, _, ref flags) = remote_mails[message_id];
 			let id = gen_id(uid1, uid2);
 			let _ = maildir.update_flags(&id, |f| {
-				let mut f = f.to_owned();
-				if flags.contains(&Flag::Seen) {
-					f.push('S');
-				} else {
-					f = f.replace('S', "");
-				}
-				if flags.contains(&Flag::Answered) {
-					f.push('R');
-				} else {
-					f = f.replace('R', "");
-				}
-				if flags.contains(&Flag::Flagged) {
-					f.push('F');
-				} else {
-					f = f.replace('F', "");
-				}
+				let f = f.replace('U', "");
+				let f = imap_flags_to_maildir(f, flags);
 				Maildir::normalize_flags(&f)
 			});
 		}
@@ -175,7 +177,8 @@ fn sync(
 			}
 			let maildir = &maildirs[mailbox];
 			let name = maildir.find_filename(&uid_name).unwrap();
-			maildirs[".gone"].store_new_from_path(&format!("{}_{}", mailbox, uid_name), name)?;
+			let _ = maildirs[".gone"].store_new_from_path(&format!("{}_{}", mailbox, uid_name), name);
+			// hardlink should only fail if the mail was already deleted
 			maildir.delete(&uid_name)?;
 			delete_mail.execute(params![mailbox, store_i64(uid)])?;
 		}
