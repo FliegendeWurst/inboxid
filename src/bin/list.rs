@@ -27,7 +27,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	
 	let mut rows = Vec::new();
 	for (i, mail) in mails.iter().enumerate() {
-		let flags = &mail.flags;
+		let flags = &mail.get_flags();
 		let mut flags_display = String::new();
 		if flags.contains('F') {
 			flags_display.push('+');

@@ -1,6 +1,6 @@
 #![feature(internal_output_capture)]
 
-use std::{array::IntoIter, cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
+use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
 
 use cursive::{Cursive, CursiveExt, Vec2};
 use cursive::align::HAlign;
@@ -11,6 +11,7 @@ use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, Se
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
+use imap::types::Flag;
 use itertools::Itertools;
 use log::error;
 use mailparse::{MailHeaderMap, ParsedMail};
@@ -41,7 +42,8 @@ fn main() -> Result<()> {
 }
 
 fn show_listing(mailbox: &str) -> Result<()> {
-	let maildir = get_maildir(mailbox)?;
+	let maildir = Box::leak(Box::new(get_maildir(mailbox)?));
+	let maildir = &*maildir;
 
 	let mut mails = Vec::new();
 	for x in maildir.list_cur() {
@@ -51,24 +53,6 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let mut mails = maildir.get_mails2(mails)?;
 	mails.sort_by_key(|x| x.date);
 	let mails = Box::leak(Box::new(mails.into_iter().map(Box::new).map(Box::leak).collect_vec()));
-	
-	let mut rows = Vec::new();
-	for (i, mail) in mails.iter().enumerate() {
-		let flags = &mail.flags;
-		let mut flags_display = String::new();
-		if flags.contains('F') {
-			flags_display.push('+');
-		}
-		if flags.contains('R') {
-			flags_display.push('R');
-		}
-		if flags.contains('S') {
-			flags_display.push(' ');
-		} else {
-			flags_display.push('*');
-		}
-		rows.push(IntoIter::new([(mails.len() - i).to_string(), flags_display, mail.from(), mail.subject.clone(), mail.date_iso.clone()]));
-	}
 
 	let mut mails_by_id = HashMap::new();
 	let mut threads: HashMap<_, Vec<_>> = HashMap::new();
@@ -179,7 +163,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		(false, 0)
 	};
 	let tree_on_select = |siv: &mut Cursive, row| {
-		let item = siv.call_on_name("tree", |tree: &mut TreeView<&EasyMail>| {
+		let item = siv.call_on_name("tree", |tree: &mut MailTreeView| {
 			*tree.borrow_item(row).unwrap()
 		}).unwrap();
 		if item.is_pseudo() {
@@ -226,13 +210,13 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			}
 			part_to_display
 		}).unwrap() {
+			siv.call_on_name("mail_info", |view: &mut MailInfoView| {
+				view.set(item);
+			});
 			siv.call_on_name("mail", |view: &mut TextView| {
 				view.set_content(mail.get_body().unwrap());
 			});
 		}
-		siv.call_on_name("mail_info", |view: &mut MailInfoView| {
-			view.set(item);
-		});
 	};
 	tree.set_on_select(tree_on_select);
 	tree.set_on_submit(|siv, _row| {
@@ -240,6 +224,27 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	});
 	let mut tree = tree.with_name("tree").scrollable();
 	tree.set_scroll_strategy(ScrollStrategy::StickToBottom);
+	let tree = OnEventView::new(tree)
+		.on_event('r', move |siv| {
+			siv.call_on_name("tree", |tree: &mut MailTreeView| {
+				if let Some(r) = tree.row() {
+					let mail = tree.borrow_item_mut(r).unwrap();
+					mail.add_flag(Flag::Seen);
+					mail.remove_flag2('U');
+					let _ = mail.save_flags(&maildir);
+				}
+			});
+		})
+		.on_event('u', move |siv| {
+			siv.call_on_name("tree", |tree: &mut MailTreeView| {
+				if let Some(r) = tree.row() {
+					let mail = tree.borrow_item_mut(r).unwrap();
+					mail.remove_flag(Flag::Seen);
+					mail.add_flag2('U');
+					let _ = mail.save_flags(&maildir);
+				}
+			});
+		});
 	let tree_resized = ResizedView::new(SizeConstraint::AtMost(120), SizeConstraint::Free, tree);
 	let mail_info = MailInfoView::new().with_name("mail_info");
 	let mail_content = TextView::new("").with_name("mail").scrollable();
@@ -320,6 +325,8 @@ fn show_listing(mailbox: &str) -> Result<()> {
 
 	Ok(())
 }
+
+type MailTreeView<'a> = TreeView<&'a EasyMail<'a>>;
 
 #[derive(Debug)]
 struct MailPart {

@@ -105,7 +105,7 @@ impl MaildirID {
 pub struct EasyMail<'a> {
 	mail: Option<ParsedMail<'a>>,
 	pub id: MaildirID,
-	pub flags: String,
+	flags: RwLock<String>,
 	from: Option<SingleInfo>,
 	from_raw: String,
 	pub subject: String,
@@ -118,7 +118,7 @@ impl EasyMail<'_> {
 		Self {
 			mail: None,
 			id: MaildirID::new(0, 0),
-			flags: "S".to_owned(),
+			flags: "S".to_owned().into(),
 			from: None,
 			from_raw: String::new(),
 			subject,
@@ -143,6 +143,36 @@ impl EasyMail<'_> {
 		} else {
 			self.from_raw.clone()
 		}
+	}
+
+	pub fn has_flag(&self, flag: &Flag) -> bool {
+		self.flags.read().contains(imap_flag_to_maildir(flag).unwrap())
+	}
+
+	pub fn add_flag(&self, flag: Flag) {
+		self.flags.write().push(imap_flag_to_maildir(&flag).unwrap());
+	}
+
+	pub fn add_flag2(&self, flag: char) {
+		self.flags.write().push(flag);
+	}
+
+	pub fn remove_flag(&self, flag: Flag) {
+		self.remove_flag2(imap_flag_to_maildir(&flag).unwrap());
+	}
+
+	pub fn remove_flag2(&self, flag: char) {
+		let mut f = self.flags.write();
+		*f = f.replace(flag, "");
+	}
+
+	pub fn save_flags(&self, maildir: &Maildir) -> Result<()> {
+		maildir.set_flags(&self.id.to_string(), &self.flags.read())?;
+		Ok(())
+	}
+
+	pub fn get_flags(&self) -> String {
+		self.flags.read().clone()
 	}
 
 	pub fn get_header(&self, header: &str) -> String {
@@ -217,7 +247,7 @@ impl TreeEntry for &EasyMail<'_> {
 		line.push(' ');
 		line += &self.date_iso;
 
-		let style = if self.flags.contains('S') { Style::default() } else { CONFIG.get().unwrap().read().browse.unread_style };
+		let style = if self.has_flag(&Flag::Seen) { Style::default() } else { CONFIG.get().unwrap().read().browse.unread_style };
 		let spans = vec![
 			IndexedSpan {
 				content: IndexedCow::Borrowed {
@@ -341,7 +371,7 @@ impl MaildirExtension for Maildir {
 			)?;
 			mails.push(EasyMail {
 				mail: Some(mail),
-				flags,
+				flags: flags.into(),
 				id,
 				from,
 				from_raw,
@@ -370,7 +400,7 @@ impl MaildirExtension for Maildir {
 			)?;
 			mails.push(EasyMail {
 				mail: Some(mail),
-				flags,
+				flags: flags.into(),
 				id,
 				from,
 				from_raw,
@@ -562,4 +592,12 @@ pub fn imap_flags_to_maildir(mut f: String, flags: &[Flag]) -> String {
 		f = f.replace('F', "");
 	}
 	f
+}
+
+pub fn imap_flag_to_maildir(flag: &Flag) -> Option<char> {
+	match flag {
+		Flag::Seen => Some('S'),
+		Flag::Answered => Some('R'),
+		_ => None
+	}
 }

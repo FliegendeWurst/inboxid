@@ -29,7 +29,7 @@ fn main() -> Result<()> {
 			if message_id.is_empty() {
 				message_id = format!("<{}_{}_{}@no-message-id>", mailbox, mail.id.uid_validity, mail.id.uid);
 			}
-			save_mail.execute(params![&mailbox, mail.id.to_i64(), message_id, mail.flags])?;
+			save_mail.execute(params![&mailbox, mail.id.to_i64(), message_id, mail.get_flags()])?;
 		}
 	}
 	}
