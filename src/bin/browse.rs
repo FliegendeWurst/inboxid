@@ -1,6 +1,6 @@
 #![feature(internal_output_capture)]
 
-use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, Mutex}};
+use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::Arc};
 
 use cursive::{Cursive, CursiveExt, Vec2};
 use cursive::align::HAlign;
@@ -15,12 +15,13 @@ use imap::types::Flag;
 use itertools::Itertools;
 use log::error;
 use mailparse::{MailHeaderMap, ParsedMail};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::{Dfs, IntoNodeReferences}};
+use rusqlite::params;
 
 fn main() -> Result<()> {
 	load_config();
-	let sink = Arc::new(Mutex::new(Vec::new()));
+	let sink = Arc::new(std::sync::Mutex::new(Vec::new()));
 	std::io::set_output_capture(Some(sink.clone()));
 	let result = std::panic::catch_unwind(|| {
 		let args = env::args().collect_vec();
@@ -42,6 +43,8 @@ fn main() -> Result<()> {
 }
 
 fn show_listing(mailbox: &str) -> Result<()> {
+	let db = Box::leak(Box::new(get_db()?));
+	let update_flags = Arc::new(Mutex::new(db.prepare("UPDATE mail SET flags = ? WHERE uid = ?")?));
 	let maildir = Box::leak(Box::new(get_maildir(mailbox)?));
 	let maildir = &*maildir;
 
@@ -224,6 +227,8 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	});
 	let mut tree = tree.with_name("tree").scrollable();
 	tree.set_scroll_strategy(ScrollStrategy::StickToBottom);
+	let update_flags2 = Arc::clone(&update_flags);
+	let update_flags3 = Arc::clone(&update_flags);
 	let tree = OnEventView::new(tree)
 		.on_event('r', move |siv| {
 			siv.call_on_name("tree", |tree: &mut MailTreeView| {
@@ -231,7 +236,9 @@ fn show_listing(mailbox: &str) -> Result<()> {
 					let mail = tree.borrow_item_mut(r).unwrap();
 					mail.add_flag(Flag::Seen);
 					mail.remove_flag2('U');
+					// TODO error handling
 					let _ = mail.save_flags(&maildir);
+					let _ = update_flags2.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
 				}
 			});
 		})
@@ -241,7 +248,9 @@ fn show_listing(mailbox: &str) -> Result<()> {
 					let mail = tree.borrow_item_mut(r).unwrap();
 					mail.remove_flag(Flag::Seen);
 					mail.add_flag2('U');
+					// TODO error handling
 					let _ = mail.save_flags(&maildir);
+					let _ = update_flags3.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
 				}
 			});
 		});

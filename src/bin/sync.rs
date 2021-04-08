@@ -73,7 +73,7 @@ fn sync(
 	for &name in &names {
 		let mailbox = name.name();
 		let remote_mails = remote.get_mut(mailbox).unwrap();
-		let resp = imap_session.examine(mailbox)?;
+		let resp = imap_session.select(mailbox)?;
 		let uid_validity = resp.uid_validity.unwrap();
 
 		let mut to_fetch = Vec::new();
@@ -90,9 +90,11 @@ fn sync(
 				let local_u = flags.contains('U');
 				let remote_s = remote_flags.contains(&Flag::Seen);
 				if local_s && !remote_s {
+					println!("setting Seen flag on {}/{}", mailbox, uid);
 					imap_session.uid_store(uid.to_string(), "+FLAGS.SILENT (\\Seen)")?;
 					remote_flags.push(Flag::Seen);
 				} else if local_u && remote_s {
+					println!("removing Seen flag on {}/{}", mailbox, uid);
 					imap_session.uid_store(uid.to_string(), "-FLAGS.SILENT (\\Seen)")?;
 					remote_flags.remove(remote_flags.iter().position(|x| x == &Flag::Seen).unwrap());
 				}
@@ -117,6 +119,8 @@ fn sync(
 			}
 		}
 		if !to_fetch.is_empty() {
+			let resp = imap_session.examine(mailbox)?;
+			let uid_validity = resp.uid_validity.unwrap();
 			let maildir = &maildirs[mailbox];
 
 			let fetch_range = to_fetch.into_iter().map(|x| x.to_string()).join(",");
