@@ -2,7 +2,6 @@ use std::env;
 
 use inboxid::*;
 use itertools::Itertools;
-use mailparse::MailHeaderMap;
 use rusqlite::params;
 
 fn main() -> Result<()> {
@@ -20,15 +19,15 @@ fn main() -> Result<()> {
 		for x in maildir.list_cur() {
 			mails.push(x?);
 		}
+		for x in maildir.list_new() {
+			mails.push(x?);
+		}
 		println!("acquired {} mails", mails.len());
 		let mut mails = maildir.get_mails(&mut mails)?;
 		mails.sort_by_key(|x| x.date);
 		for mail in mails {
 			let headers = mail.get_headers();
-			let mut message_id = headers.get_all_values("Message-ID").join(" ");
-			if message_id.is_empty() {
-				message_id = format!("<{}_{}_{}@no-message-id>", mailbox, mail.id.uid_validity, mail.id.uid);
-			}
+			let message_id = headers.message_id(&mailbox, mail.id);
 			save_mail.execute(params![&mailbox, mail.id.to_i64(), message_id, mail.get_flags()])?;
 		}
 	}

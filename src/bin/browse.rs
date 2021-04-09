@@ -11,7 +11,6 @@ use cursive::views::{Checkbox, LinearLayout, NamedView, OnEventView, Panel, Resi
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
-use imap::types::Flag;
 use itertools::Itertools;
 use log::error;
 use mailparse::{MailHeaderMap, ParsedMail};
@@ -227,13 +226,14 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let tree = tree.on_select(tree_on_select).with_name("tree").scrollable().with_name("tree_scroller");
 	let update_flags2 = Arc::clone(&update_flags);
 	let update_flags3 = Arc::clone(&update_flags);
+	let update_flags4 = Arc::clone(&update_flags);
+	let update_flags5 = Arc::clone(&update_flags);
 	let tree = OnEventView::new(tree)
 		.on_event('r', move |siv| {
 			siv.call_on_name("tree", |tree: &mut MailTreeView| {
 				if let Some(r) = tree.row() {
 					let mail = tree.borrow_item_mut(r).unwrap();
-					mail.add_flag(Flag::Seen);
-					mail.remove_flag2('U');
+					mail.mark_as_read(true);
 					// TODO error handling
 					let _ = mail.save_flags(&maildir);
 					let _ = update_flags2.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
@@ -244,11 +244,33 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			siv.call_on_name("tree", |tree: &mut MailTreeView| {
 				if let Some(r) = tree.row() {
 					let mail = tree.borrow_item_mut(r).unwrap();
-					mail.remove_flag(Flag::Seen);
-					mail.add_flag2('U');
+					mail.mark_as_read(false);
 					// TODO error handling
 					let _ = mail.save_flags(&maildir);
 					let _ = update_flags3.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
+				}
+			});
+		})
+		.on_event('t', move |siv| {
+			siv.call_on_name("tree", |tree: &mut MailTreeView| {
+				if let Some(r) = tree.row() {
+					let mail = tree.borrow_item_mut(r).unwrap();
+					mail.mark_as_read(true);
+					mail.add_flag2(TRASHED);
+					// TODO error handling
+					let _ = mail.save_flags(&maildir);
+					let _ = update_flags4.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
+				}
+			});
+		})
+		.on_event('d', move |siv| {
+			siv.call_on_name("tree", |tree: &mut MailTreeView| {
+				if let Some(r) = tree.row() {
+					let mail = tree.borrow_item_mut(r).unwrap();
+					mail.add_flag2(DELETE);
+					// TODO error handling
+					let _ = mail.save_flags(&maildir);
+					let _ = update_flags5.lock().execute(params![mail.get_flags(), mail.id.to_i64()]);
 				}
 			});
 		});

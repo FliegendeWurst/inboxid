@@ -21,12 +21,16 @@ use serde_derive::{Deserialize, Serialize};
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type ImapSession = Session<StreamOwned<ClientSession, TcpStream>>;
 
+pub const UNREAD: char = 'U';
+pub const TRASHED: char = 'T';
+pub const DELETE: char = 'E'; // Exterminate
+
 pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<ImapSession> {
 	println!("connecting..");
-	let stream = TcpStream::connect((host, port))?;
-	let tls = RustlsConnector::new_with_native_certs()?;
+	let stream = TcpStream::connect((host, port)).context("TCP connect failed")?;
+	let tls = RustlsConnector::new_with_native_certs().context("TLS configuration failed")?;
 	println!("initializing TLS..");
-	let tlsstream = tls.connect(host, stream)?;
+	let tlsstream = tls.connect(host, stream).context("TLS connection failed")?;
 	println!("initializing client..");
 	let client = imap::Client::new(tlsstream);
 
@@ -83,23 +87,44 @@ impl TryFrom<&str> for MaildirID {
 	}
 }
 
-impl ToString for MaildirID {
-	fn to_string(&self) -> String {
-		format!("{}_{}", self.uid_validity, self.uid)
+impl From<i64> for MaildirID {
+	fn from(x: i64) -> Self {
+		let x = load_i64(x);
+		Self::new((x >> 32) as u32, ((x << 32) >> 32) as u32)
 	}
 }
 
+impl Display for MaildirID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}_{}", self.uid_validity, self.uid)
+    }
+}
+
 impl MaildirID {
-	pub fn new(x: u32, y: u32) -> Self {
+	pub fn new(uid_validity: u32, uid: u32) -> Self {
 		Self {
-			uid_validity: x,
-			uid: y
+			uid_validity,
+			uid
 		}
 	}
 
-	pub fn to_i64(&self) -> i64 {
-		store_i64(((self.uid_validity as u64) << 32) | self.uid as u64)
+	pub fn to_u64(&self) -> u64 {
+		((self.uid_validity as u64) << 32) | self.uid as u64
 	}
+
+	pub fn to_i64(&self) -> i64 {
+		store_i64(self.to_u64())
+	}
+
+	pub fn to_imap(&self) -> String {
+		self.uid.to_string()
+	}
+}
+
+pub fn maildir_cp(maildir1: &Maildir, maildir2: &Maildir, id1: &str, id2: &str) -> Result<()> {
+	let name = maildir1.find_filename(id1).context("mail not found")?;
+	maildir2.store_new_from_path(id2, name)?;
+	Ok(())
 }
 
 pub struct EasyMail<'a> {
@@ -166,6 +191,16 @@ impl EasyMail<'_> {
 		*f = f.replace(flag, "");
 	}
 
+	pub fn mark_as_read(&self, read: bool) {
+		if read {
+			self.add_flag(Flag::Seen);
+			self.remove_flag2(UNREAD);
+		} else {
+			self.remove_flag(Flag::Seen);
+			self.add_flag2(UNREAD);
+		}
+	}
+
 	pub fn save_flags(&self, maildir: &Maildir) -> Result<()> {
 		maildir.set_flags(&self.id.to_string(), &self.flags.read())?;
 		Ok(())
@@ -173,10 +208,6 @@ impl EasyMail<'_> {
 
 	pub fn get_flags(&self) -> String {
 		self.flags.read().clone()
-	}
-
-	pub fn get_header(&self, header: &str) -> String {
-		self.get_headers().get_all_values(header).join(" ")
 	}
 
 	pub fn get_header_values(&self, header: &str) -> Vec<String> {
@@ -298,6 +329,7 @@ pub trait MailExtension {
 	fn get_tree_structure<'a>(&'a self, graph: &mut Graph<&'a ParsedMail<'a>, ()>, parent: Option<NodeIndex>);
 	fn print_tree_structure(&self, depth: usize, counter: &mut usize);
 	fn get_tree_part(&self, counter: &mut usize, target: usize) -> Option<&ParsedMail>;
+	fn get_header(&self, header: &str) -> String;
 }
 
 impl MailExtension for ParsedMail<'_> {
@@ -337,6 +369,34 @@ impl MailExtension for ParsedMail<'_> {
 		}
 		None
 	}
+
+	fn get_header(&self, header: &str) -> String {
+		self.get_headers().get_header(header)
+	}
+}
+
+pub trait HeadersExtension {
+	fn message_id(&self, mailbox: &str, id: MaildirID) -> String;
+	fn get_header(&self, header: &str) -> String;
+}
+
+impl<T: MailHeaderMap + ?Sized> HeadersExtension for T {
+	fn message_id(&self, mailbox: &str, id: MaildirID) -> String {
+		let mid = self.get_header("Message-ID");
+		if mid.is_empty() {
+			fallback_mid(mailbox, id)
+		} else {
+			mid
+		}
+	}
+
+	fn get_header(&self, header: &str) -> String {
+		self.get_all_values(header).join(" ")
+	}
+}
+
+pub fn fallback_mid(mailbox: &str, id: MaildirID) -> String {
+	format!("<{}_{}_{}@no-message-id>", mailbox, id.uid_validity, id.uid)
 }
 
 pub trait MaildirExtension {
