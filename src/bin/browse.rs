@@ -2,12 +2,12 @@
 
 use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::Arc};
 
-use cursive::{Cursive, CursiveExt, Vec2};
+use cursive::{Cursive, Vec2};
 use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
-use cursive::view::{Scrollable, ScrollStrategy, SizeConstraint, View};
-use cursive::views::{Checkbox, LinearLayout, OnEventView, Panel, ResizedView, SelectView, TextView};
+use cursive::view::{Scrollable, SizeConstraint, View};
+use cursive::views::{Checkbox, LinearLayout, NamedView, OnEventView, Panel, ResizedView, ScrollView, SelectView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
 use inboxid::*;
 use io::Write;
@@ -221,12 +221,10 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			});
 		}
 	};
-	tree.set_on_select(tree_on_select);
 	tree.set_on_submit(|siv, _row| {
 		siv.focus_name("mail").unwrap();
 	});
-	let mut tree = tree.with_name("tree").scrollable();
-	tree.set_scroll_strategy(ScrollStrategy::StickToBottom);
+	let tree = tree.on_select(tree_on_select).with_name("tree").scrollable().with_name("tree_scroller");
 	let update_flags2 = Arc::clone(&update_flags);
 	let update_flags3 = Arc::clone(&update_flags);
 	let tree = OnEventView::new(tree)
@@ -330,7 +328,16 @@ fn show_listing(mailbox: &str) -> Result<()> {
 
 	siv.add_global_callback('q', |s| s.quit());
 
-	siv.run();
+	// manual event loop (to scroll to end of ScrollView)
+	let mut siv = siv.into_runner(cursive::backends::termion::Backend::init()?);
+	siv.refresh();
+	siv.call_on_name("tree_scroller", |tree: &mut ScrollView<NamedView<MailTreeView>>| {
+		tree.on_event(Event::Key(Key::End))
+	}).unwrap().process(&mut siv);
+	siv.refresh();
+	while siv.is_running() {
+		siv.step();
+	}
 
 	Ok(())
 }
@@ -377,7 +384,7 @@ impl MailInfoView {
 const HEADERS_TO_DISPLAY: &[&str] = &["From", "Subject", "To"];
 
 impl View for MailInfoView {
-    fn draw(&self, printer: &cursive::Printer) {
+	fn draw(&self, printer: &cursive::Printer) {
 		if let Some(mail) = self.email {
 			let mut y = 0;
 			for header in HEADERS_TO_DISPLAY {
@@ -386,11 +393,11 @@ impl View for MailInfoView {
 				x += header.len(/* ASCII-only */);
 				printer.print((x, y), ": ");
 				x += 2;
-        		printer.print((x, y), &mail.headers.get_all_values(header).join(" "));
+				printer.print((x, y), &mail.headers.get_all_values(header).join(" "));
 				y += 1;
 			}
 		}
-    }
+	}
 
 	fn required_size(&mut self, _constraint: Vec2) -> Vec2 {
 		(42, HEADERS_TO_DISPLAY.len()).into()
