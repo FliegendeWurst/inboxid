@@ -37,8 +37,13 @@ fn do_filtering(mailbox: &str, config: &str) -> Result<()> {
 			for action in action.0.action.as_ref().unwrap() {
 				match &*action[0] {
 					"mv" => {
+						let uid = mail.id.to_imap();
 						println!(" moving to mailbox {}", action[1]);
-						imap_session.uid_mv(mail.id.uid.to_string(), &action[1])?;
+						// update flags
+						let flags = mail.get_flags();
+						let flags = maildir_flags_to_imap(&flags);
+						imap_session.uid_store(&uid, &format!("FLAGS.SILENT {}", imap_flags_to_cmd(&flags)))?;
+						imap_session.uid_mv(&uid, &action[1])?;
 					},
 					x => {
 						println!("WARNING: unknown action {:?}", x);
