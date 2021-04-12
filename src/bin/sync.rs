@@ -6,7 +6,7 @@ use itertools::Itertools;
 use maildir::Maildir;
 
 use inboxid::*;
-use mailparse::{MailHeaderMap, parse_header, parse_headers};
+use mailparse::{parse_header, parse_headers};
 use rusqlite::{Row, params, types::FromSql};
 
 const TRASH: NameAttribute = NameAttribute::Custom(Cow::Borrowed("\\Trash"));
@@ -16,8 +16,10 @@ fn main() -> Result<()> {
 	let user = env::var("MAILUSER").expect("missing envvar MAILUSER");
 	let password = env::var("MAILPASSWORD").expect("missing envvar MAILPASSWORD");
 	let port = 993;
+	let args = env::args().skip(1).collect_vec();
+	let args = args.iter().map(|x| &**x).collect_vec();
 
-	sync(&host, &user, &password, port)
+	sync(&host, &user, &password, port, &args)
 }
 
 fn sync(
@@ -25,6 +27,7 @@ fn sync(
 	user: &str,
 	password: &str,
 	port: u16,
+	mailboxes: &[&str]
 ) -> Result<()> {
 	let db = get_db()?;
 	let mut imap_session = connect(host, port, user, password)?;
@@ -68,11 +71,11 @@ fn sync(
 	let mut delete_mail = db.prepare("DELETE FROM mail WHERE mailbox = ? AND uid = ?")?;
 	let mut all_mail = db.prepare("SELECT uid, message_id, flags FROM mail WHERE mailbox = ?")?;
 	let mut save_mail = db.prepare("INSERT INTO mail VALUES (?,?,?,?)")?;
-	let mut maildirs: HashMap<&str, Maildir> = names.iter().map(|&x| (x.name(), get_maildir(x.name()).unwrap())).collect();
+	let mut maildirs: HashMap<String, Maildir> = names.iter().map(|&x| (x.name().to_owned(), get_maildir(x.name()).unwrap())).collect();
 	macro_rules! ensure_mailbox {
 		($name:expr) => {{
 			if !maildirs.contains_key($name) {
-				maildirs.insert($name, get_maildir($name)?);
+				maildirs.insert($name.to_owned(), get_maildir($name)?);
 			}
 			&maildirs[$name]
 		}}
@@ -82,6 +85,10 @@ fn sync(
 	let mut to_remove: HashMap<&str, _> = HashMap::new();
 	for &name in &names {
 		let mailbox = name.name();
+		// if the user specified some mailboxes, only process those
+		if !mailboxes.is_empty() && !mailboxes.contains(&mailbox) {
+			continue;
+		}
 		let is_trash = name.attributes().iter().any(|x| *x == TRASH);
 		let remote_mails = remote.get_mut(mailbox).unwrap();
 		println!("selecting {}", mailbox);
@@ -101,9 +108,9 @@ fn sync(
 					}
 					let gone = ensure_mailbox!(".gone");
 					let uid_name = uid.to_string();
-					let _ = maildir_cp(&maildirs[mailbox], gone, &uid_name, &uid_name);
+					let _ = maildir_cp(&maildirs[mailbox], gone, &uid_name, &uid_name, "", true);
 					maildirs[mailbox].delete(&uid_name)?;
-					delete_mail.execute(params![mailbox, uid.to_i64()])?;
+					delete_mail.execute(params![mailbox, uid])?;
 				} else if !printed_trash_warning {
 					println!("Warning: unable to trash mail, no trash folder found!");
 					printed_trash_warning = true;
@@ -116,7 +123,7 @@ fn sync(
 					println!("Warning: only deleting locally!");
 				}
 				remote_mails.remove(&mid);
-				delete_mail.execute(params![mailbox, uid.to_i64()])?;
+				delete_mail.execute(params![mailbox, uid])?;
 				maildirs[mailbox].delete(&uid.to_string())?;
 				deleted_some = true;
 			}
@@ -162,11 +169,10 @@ fn sync(
 				let new_uid = MaildirID::new(*uid1, *uid2);
 				let new_id = new_uid.to_string();
 				// hardlink mail
-				let maildir1 = &maildirs[&**inbox];
-				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
-				let name = maildir1.find_filename(&local_id).unwrap();
+				let maildir1 = ensure_mailbox!(inbox.as_str());
 				let maildir2 = &maildirs[mailbox];
-				maildir2.store_cur_from_path(&new_id, flags, name)?;
+				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
+				maildir_cp(maildir1, maildir2, &local_id, &new_id, flags, false)?;
 				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id, flags])?;
 				update_flags!(new_uid.to_u64(), flags);
 			} else if !is_trash { // do not fetch trashed mail
@@ -182,9 +188,8 @@ fn sync(
 			let fetch = imap_session.uid_fetch(fetch_range, "RFC822")?;
 
 			for mail in fetch.iter() {
-				let uid = mail.uid.unwrap();
-				println!("fetching: {}/{}", mailbox, uid);
-				let id = MaildirID::new(uid_validity, uid);
+				println!("fetching: {}/{}", mailbox, mail.uid.unwrap());
+				let id = MaildirID::new(uid_validity, mail.uid.unwrap());
 				let id_name = id.to_string();
 				if !maildir.exists(&id_name) {
 					let mail_data = mail.body().unwrap_or_default();
@@ -192,12 +197,8 @@ fn sync(
 					maildir.store_cur_with_id_flags(&id_name, &flags, mail_data)?;
 
 					let headers = parse_headers(&mail_data)?.0;
-					let mut message_id = headers.get_all_values("Message-ID").join(" ");
-					if message_id.is_empty() {
-						message_id = headers.message_id(mailbox, id);
-					}
-					let full_uid = ((uid_validity as u64) << 32) | uid as u64;
-					save_mail.execute(params![mailbox, store_i64(full_uid), message_id, flags])?;
+					let message_id = headers.message_id(mailbox, id);
+					save_mail.execute(params![mailbox, id.to_i64(), message_id, flags])?;
 				} else {
 					println!("warning: DB outdated, downloaded mail again");
 				}
@@ -228,14 +229,14 @@ fn sync(
 			to_remove.insert(mailbox, removed);
 		}
 	}
-	for mailbox in to_remove.keys() {
+	for &mailbox in to_remove.keys() {
 		for &(uid1, uid2, uid) in &to_remove[mailbox] {
 			let uid_name = gen_id(uid1, uid2);
 			println!("removing: {}/{}", mailbox, uid_name);
 			let gone = ensure_mailbox!(".gone");
 			let maildir = &maildirs[mailbox];
 			// hardlink should only fail if the mail was already deleted
-			let _ = maildir_cp(maildir, gone, &uid_name, &uid_name);
+			let _ = maildir_cp(maildir, gone, &uid_name, &uid_name, "", true);
 			maildir.delete(&uid_name)?;
 			delete_mail.execute(params![mailbox, store_i64(uid)])?;
 		}

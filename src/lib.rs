@@ -2,7 +2,7 @@ use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, 
 
 use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-use cursive::{theme::{Effect, Style}, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
+use cursive::{theme::{BaseColor, Color, ColorStyle, ColorType, Effect, Style}, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
 use cursive_tree_view::TreeEntry;
 use directories_next::ProjectDirs;
 use imap::{Session, types::Flag};
@@ -12,7 +12,7 @@ use mailparse::{MailHeaderMap, ParsedMail, SingleInfo, addrparse, dateparse};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use petgraph::{Graph, graph::NodeIndex};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, ToSql, params, types::ToSqlOutput};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
 use serde::{Deserializer, Serializer};
 use serde::de::Visitor;
@@ -24,6 +24,9 @@ pub type ImapSession = Session<StreamOwned<ClientSession, TcpStream>>;
 pub const UNREAD: char = 'U';
 pub const TRASHED: char = 'T';
 pub const DELETE: char = 'E'; // Exterminate
+pub const SEEN: char = 'S';
+pub const REPLIED: char = 'R';
+pub const FLAGGED: char = 'F';
 
 pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<ImapSession> {
 	println!("connecting..");
@@ -94,6 +97,12 @@ impl From<i64> for MaildirID {
 	}
 }
 
+impl ToSql for MaildirID {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'static>> {
+        Ok(ToSqlOutput::from(self.to_i64()))
+    }
+}
+
 impl Display for MaildirID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}_{}", self.uid_validity, self.uid)
@@ -121,9 +130,13 @@ impl MaildirID {
 	}
 }
 
-pub fn maildir_cp(maildir1: &Maildir, maildir2: &Maildir, id1: &str, id2: &str) -> Result<()> {
+pub fn maildir_cp(maildir1: &Maildir, maildir2: &Maildir, id1: &str, id2: &str, flags: &str, new: bool) -> Result<()> {
 	let name = maildir1.find_filename(id1).context("mail not found")?;
-	maildir2.store_new_from_path(id2, name)?;
+	if new {
+		maildir2.store_new_from_path(id2, name)?;
+	} else {
+		maildir2.store_cur_from_path(id2, flags, name)?;
+	}
 	Ok(())
 }
 
@@ -172,6 +185,10 @@ impl EasyMail<'_> {
 
 	pub fn has_flag(&self, flag: &Flag) -> bool {
 		self.flags.read().contains(imap_flag_to_maildir(flag).unwrap())
+	}
+
+	pub fn has_flag2(&self, flag: char) -> bool {
+		self.flags.read().contains(flag)
 	}
 
 	pub fn add_flag(&self, flag: Flag) {
@@ -278,7 +295,15 @@ impl TreeEntry for &EasyMail<'_> {
 		line.push(' ');
 		line += &self.date_iso;
 
-		let style = if self.has_flag(&Flag::Seen) { Style::default() } else { CONFIG.get().unwrap().read().browse.unread_style };
+		let style = if self.has_flag2(DELETE) {
+			CONFIG.get().unwrap().read().browse.deleted_style
+		} else if self.has_flag(&Flag::Deleted) {
+			CONFIG.get().unwrap().read().browse.trashed_style
+		} else if !self.has_flag(&Flag::Seen) {
+			CONFIG.get().unwrap().read().browse.unread_style
+		} else {
+			Style::default()
+		};
 		let spans = vec![
 			IndexedSpan {
 				content: IndexedCow::Borrowed {
@@ -571,13 +596,23 @@ pub struct Browse {
 	#[serde(deserialize_with = "deserialize_style")]
 	#[serde(serialize_with = "serialize_style")]
 	pub unread_style: Style,
+	#[serde(default = "default_trashed_style")]
+	#[serde(deserialize_with = "deserialize_style")]
+	#[serde(serialize_with = "serialize_style")]
+	pub trashed_style: Style,
+	#[serde(default = "default_deleted_style")]
+	#[serde(deserialize_with = "deserialize_style")]
+	#[serde(serialize_with = "serialize_style")]
+	pub deleted_style: Style,
 }
 
 impl Default for Browse {
 	fn default() -> Self {
 		Self {
 			show_email_addresses: Default::default(),
-			unread_style: default_unread_style()
+			unread_style: default_unread_style(),
+			trashed_style: default_trashed_style(),
+			deleted_style: default_deleted_style()
 		}
 	}
 }
@@ -635,6 +670,16 @@ fn default_unread_style() -> Style {
 	Effect::Reverse.into()
 }
 
+fn default_trashed_style() -> Style {
+	let mut color = ColorStyle::primary();
+	color.front = ColorType::Color(Color::Light(BaseColor::Black));
+	color.into()
+}
+
+fn default_deleted_style() -> Style {
+	Effect::Strikethrough.into()
+}
+
 pub fn imap_flags_to_maildir(mut f: String, flags: &[Flag]) -> String {
 	if flags.contains(&Flag::Seen) {
 		f.push('S');
@@ -658,6 +703,37 @@ pub fn imap_flag_to_maildir(flag: &Flag) -> Option<char> {
 	match flag {
 		Flag::Seen => Some('S'),
 		Flag::Answered => Some('R'),
+		Flag::Flagged => Some('F'),
+		Flag::Deleted => Some('T'),
 		_ => None
 	}
+}
+
+pub fn maildir_flags_to_imap(flags: &str) -> Vec<Flag> {
+	let mut x = vec![];
+	for c in flags.chars() {
+		if let Some(f) = match c {
+			REPLIED => Some(Flag::Answered),
+			SEEN => Some(Flag::Seen),
+			FLAGGED => Some(Flag::Flagged),
+			TRASHED => Some(Flag::Deleted),
+			_ => None
+		} {
+			x.push(f);
+		}
+	}
+	x
+}
+
+pub fn imap_flags_to_cmd(flags: &[Flag]) -> String {
+	let mut x = "(".to_owned();
+	for f in flags {
+		x += &f.to_string();
+		x.push(' ');
+	}
+	if x.ends_with(' ') {
+		x.pop();
+	}
+	x.push(')');
+	x
 }
