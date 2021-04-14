@@ -1,6 +1,6 @@
 use std::{borrow::Cow, convert::{TryFrom, TryInto}, env, fmt::{Debug, Display}, fs, hash::Hash, io, net::TcpStream, ops::Deref, path::PathBuf};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use cursive::{theme::{BaseColor, Color, ColorStyle, ColorType, Effect, Style}, utils::span::{IndexedCow, IndexedSpan, SpannedString}};
 use cursive_tree_view::TreeEntry;
@@ -41,6 +41,21 @@ pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<Imap
 	// to do anything useful with the e-mails, we need to log in
 	println!("logging in..");
 	Ok(client.login(user, password).map_err(|e| e.0)?)
+}
+
+pub fn get_maildirs() -> Result<Vec<String>> {
+	let maildir = env::var("MAILDIR").expect("missing envvar MAILDIR");
+	let mut dirs = vec![];
+	for dir in fs::read_dir(&maildir)? {
+		let dir = dir?;
+		if dir.file_type()?.is_dir() {
+			let name = dir.file_name().into_string().map_err(|_| anyhow!("failed to decode directory name"))?;
+			if !name.starts_with('.') {
+				dirs.push(name);
+			}
+		}
+	}
+	Ok(dirs)
 }
 
 pub fn get_maildir(mailbox: &str) -> Result<Maildir> {
