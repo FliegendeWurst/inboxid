@@ -218,6 +218,9 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			siv.call_on_name("mail", |view: &mut TextView| {
 				view.set_content(mail.get_body().unwrap());
 			});
+			siv.call_on_name("mail_scroller", |view: &mut MailScrollerView| {
+				view.scroll_to_top();
+			});
 		}
 	};
 	tree.set_on_submit(|siv, _row| {
@@ -276,7 +279,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		});
 	let tree_resized = ResizedView::new(SizeConstraint::AtMost(120), SizeConstraint::Free, tree);
 	let mail_info = MailInfoView::new().with_name("mail_info");
-	let mail_content = TextView::new("").with_name("mail").scrollable();
+	let mail_content = TextView::new("").with_name("mail").scrollable().with_name("mail_scroller");
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
 		let item = siv.call_on_name("part_select", |tree: &mut TreeView<MailPart>| {
@@ -364,6 +367,8 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	Ok(())
 }
 
+type MailScrollerView = ScrollView<NamedView<MailView>>;
+type MailView = TextView;
 type MailTreeView<'a> = TreeView<&'a EasyMail<'a>>;
 
 #[derive(Debug)]
