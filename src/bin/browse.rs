@@ -216,7 +216,14 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				view.set(item);
 			});
 			siv.call_on_name("mail", |view: &mut TextView| {
-				view.set_content(mail.get_body().unwrap());
+				let body = if mail.ctype.mimetype == "text/html" {
+					let html = mail.get_body().unwrap();
+					html2text::from_read(html.as_bytes(), 120)
+					// TODO: this logic is duplicated below + the actual width should be considered
+				} else {
+					mail.get_body().unwrap()
+				};
+				view.set_content(body);
 			});
 			siv.call_on_name("mail_scroller", |view: &mut MailScrollerView| {
 				view.scroll_to_top();
@@ -282,11 +289,17 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let mail_content = TextView::new("").with_name("mail").scrollable().with_name("mail_scroller");
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
-		let item = siv.call_on_name("part_select", |tree: &mut TreeView<MailPart>| {
+		let mail = siv.call_on_name("part_select", |tree: &mut TreeView<MailPart>| {
 			tree.borrow_item(row).unwrap().part
 		}).unwrap();
 		siv.call_on_name("mail", |view: &mut TextView| {
-			view.set_content(item.get_body().unwrap());
+			let body = if mail.ctype.mimetype == "text/html" {
+				let html = mail.get_body().unwrap();
+				html2text::from_read(html.as_bytes(), 120)
+			} else {
+				mail.get_body().unwrap()
+			};
+			view.set_content(body);
 		});
 	});
 	mail_part_select.set_on_submit(|siv, _row| {
