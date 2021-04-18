@@ -31,6 +31,9 @@ fn do_filtering(mailbox: &str, config: &str) -> Result<()> {
 	imap_session.select(mailbox)?;
 
 	for mail in mails {
+		if mail.has_flag2(TRASHED) || mail.has_flag2(DELETE) {
+			continue; // ignore mails marked for deletion
+		}
 		if let Some(action) = mailproc::handle(&mail, &[], &config) { // TODO: provide raw bytes
 			println!("{:?}", action.0);
 			println!(" matched {}", mail.subject);
