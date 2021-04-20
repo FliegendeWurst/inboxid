@@ -46,6 +46,10 @@ fn sync(
 
 	for &name in &names {
 		let mailbox = name.name();
+		// if the user specified some mailboxes, only process those
+		if !mailboxes.is_empty() && !mailboxes.contains(&mailbox) {
+			continue;
+		}
 		println!("indexing {}", mailbox);
 		let resp = imap_session.examine(mailbox)?;
 		let uid_validity = resp.uid_validity.unwrap();
