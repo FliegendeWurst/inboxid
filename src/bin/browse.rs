@@ -2,7 +2,7 @@
 
 use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
-use cursive::{Cursive, Vec2, view::ViewWrapper};
+use cursive::{Cursive, Vec2, WrapMethod, view::ViewWrapper};
 use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
@@ -288,28 +288,34 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let mail_info = MailInfoView::new().with_name("mail_info");
 	let mail_content = TextView::new("").with_name("mail");
 	static MAIL_FULLSCREEN: AtomicBool = AtomicBool::new(false);
-	let dummy = std::rc::Rc::new(RefCell::new(Some(OnEventView::new(TextView::new("dummy").with_name("dummy"))))); // TODO dummy content
+	let dummy = std::rc::Rc::new(RefCell::new(Some(OnEventView::new(TextView::new("dummy").with_name("dummy")).scrollable()))); // TODO dummy content
 	let dummy_ = dummy.clone();
 	let mail_content = OnEventView::new(mail_content)
 		.on_event('f', move |s| {
 			let dummy__ = dummy_.clone();
 			if MAIL_FULLSCREEN.load(Ordering::SeqCst) {
 				let layer = s.pop_layer().unwrap();
-				if let Ok(textview) = layer.downcast::<ResizedView<OnEventView<NamedView<TextView>>>>() {
-					dummy__.borrow_mut().replace(textview.into_inner().unwrap_or_else(|_| panic!("?")));
-					s.call_on_name("mail_event_host", move |this: &mut OnEventView<NamedView<TextView>>| {
+				if let Ok(textview) = layer.downcast::<ResizedView<ScrollView<OnEventView<NamedView<TextView>>>>>() {
+					let mut it = textview.into_inner().unwrap_or_else(|_| panic!("?"));
+					it.set_show_scrollbars(true);
+					it.get_inner_mut().get_inner_mut().get_mut().set_wrap_method(WrapMethod::XiUnicode);
+					dummy__.borrow_mut().replace(it);
+					s.call_on_name("mail_scroller", move |this: &mut ScrollView<OnEventView<NamedView<TextView>>>| {
 						std::mem::swap(dummy__.borrow_mut().as_mut().unwrap(), this);
 					});
 				}
 				MAIL_FULLSCREEN.store(false, Ordering::SeqCst);
 			} else {
-				s.call_on_name("mail_event_host", move |this: &mut OnEventView<NamedView<TextView>>| {
+				s.call_on_name("mail_scroller", move |this: &mut ScrollView<OnEventView<NamedView<TextView>>>| {
 					std::mem::swap(dummy__.borrow_mut().as_mut().unwrap(), this);
 				});
-				s.add_fullscreen_layer(ResizedView::with_full_screen(dummy_.borrow_mut().take().unwrap()));
+				let mut it = dummy_.borrow_mut().take().unwrap();
+				it.set_show_scrollbars(false);
+				it.get_inner_mut().get_inner_mut().get_mut().set_wrap_method(WrapMethod::Newlines);
+				s.add_fullscreen_layer(ResizedView::with_full_screen(it));
 				MAIL_FULLSCREEN.store(true, Ordering::SeqCst);
 			}
-		}).with_name("mail_event_host");
+		});
 	let mail_content = mail_content.scrollable().with_name("mail_scroller");
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
