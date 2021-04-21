@@ -12,7 +12,7 @@ use mailparse::{MailHeaderMap, ParsedMail, SingleInfo, addrparse, dateparse};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use petgraph::{Graph, graph::NodeIndex};
-use rusqlite::{Connection, ToSql, params, types::ToSqlOutput};
+use rusqlite::{Connection, ToSql, params, types::{FromSql, ToSqlOutput}};
 use rustls_connector::{RustlsConnector, rustls::{ClientSession, StreamOwned}};
 use serde::{Deserializer, Serializer};
 use serde::de::Visitor;
@@ -115,6 +115,13 @@ impl From<i64> for MaildirID {
 impl ToSql for MaildirID {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'static>> {
         Ok(ToSqlOutput::from(self.to_i64()))
+    }
+}
+
+impl FromSql for MaildirID {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let x = i64::column_result(value)?;
+		Ok(MaildirID::from(x))
     }
 }
 

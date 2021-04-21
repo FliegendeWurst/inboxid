@@ -63,10 +63,12 @@ fn sync(
 				continue;
 			}
 			let header = m.header().unwrap();
-			let message_id = parse_header(header).map(|x| x.0.get_value())
-				.unwrap_or_else(|_| fallback_mid(mailbox, id));
+			let mut message_id = parse_header(header).map(|x| x.0.get_value()).unwrap_or_default();
+			if message_id.is_empty() {
+				message_id = fallback_mid(mailbox, id);
+			}
 			let flags = flags.iter().map(|x| remove_cow(x)).collect_vec();
-			mails.insert(message_id, (id.uid_validity, id.uid, id.to_u64(), flags));
+			mails.insert(message_id, (id.uid_validity, id.uid, id, flags));
 		}
 		remote.insert(mailbox, mails);
 	}
@@ -139,24 +141,19 @@ fn sync(
 		let mut to_fetch = Vec::new();
 		for (message_id, entry) in remote_mails.iter_mut() {
 			let (uid1, uid2, full_uid, remote_flags) = entry;
-			let local = have_mail.query_map(params![message_id], |row| Ok((
-				row.get::<_, String>(0)?,
-				load_i64(row.get::<_, i64>(1)?),
-				row.get::<_, String>(2)?
-			)))?.map(|x| x.unwrap()).collect_vec();
+			let local = have_mail.query_map(params![message_id], map3rows::<String, MaildirID, String>)?.map(|x| x.unwrap()).collect_vec();
 			macro_rules! update_flags {
-				($full_uid:expr, $flags:expr) => {
-					let uid = ($full_uid << 32) >> 32;
+				($id:expr, $flags:expr) => {
 					let local_s = $flags.contains('S');
 					let local_u = $flags.contains(UNREAD);
 					let remote_s = remote_flags.contains(&Flag::Seen);
 					if local_s && !remote_s {
-						println!("setting Seen flag on {}/{}", mailbox, uid);
-						imap_session.uid_store(uid.to_string(), "+FLAGS.SILENT (\\Seen)")?;
+						println!("setting Seen flag on {}/{}", mailbox, $id.uid);
+						imap_session.uid_store($id.to_imap(), "+FLAGS.SILENT (\\Seen)")?;
 						remote_flags.push(Flag::Seen);
 					} else if local_u && remote_s {
-						println!("removing Seen flag on {}/{}", mailbox, uid);
-						imap_session.uid_store(uid.to_string(), "-FLAGS.SILENT (\\Seen)")?;
+						println!("removing Seen flag on {}/{}", mailbox, $id.uid);
+						imap_session.uid_store($id.to_imap(), "-FLAGS.SILENT (\\Seen)")?;
 						remote_flags.remove(remote_flags.iter().position(|x| x == &Flag::Seen).unwrap());
 					}
 				}
@@ -167,9 +164,7 @@ fn sync(
 			}
 			if !local.is_empty() {
 				let (inbox, full_uid, flags) = &local[0];
-				let local_uid1 = (full_uid >> 32) as u32;
-				let local_uid2 = ((full_uid << 32) >> 32) as u32;
-				let local_id = gen_id(local_uid1, local_uid2);
+				let local_id = full_uid.to_string();
 				let new_uid = MaildirID::new(*uid1, *uid2);
 				let new_id = new_uid.to_string();
 				// hardlink mail
@@ -178,8 +173,9 @@ fn sync(
 				println!("hardlinking: {}/{} -> {}/{}", inbox, local_id, mailbox, new_id);
 				maildir_cp(maildir1, maildir2, &local_id, &new_id, flags, false)?;
 				save_mail.execute(params![mailbox, new_uid.to_i64(), message_id, flags])?;
-				update_flags!(new_uid.to_u64(), flags);
+				update_flags!(new_uid, flags);
 			} else if !is_trash { // do not fetch trashed mail
+				println!("fetching {:?} {:?} as it is not in {:?}", uid2, message_id, local);
 				to_fetch.push(uid2);
 			}
 		}
