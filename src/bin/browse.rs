@@ -316,7 +316,8 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				MAIL_FULLSCREEN.store(true, Ordering::SeqCst);
 			}
 		});
-	let mail_content = mail_content.scrollable().with_name("mail_scroller");
+	let mail_content: MailScrollerView = mail_content.scrollable();
+	let mail_content = mail_content.with_name("mail_scroller");
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
 		let mail = siv.call_on_name("part_select", |tree: &mut TreeView<MailPart>| {
@@ -410,7 +411,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	Ok(())
 }
 
-type MailScrollerView = ScrollView<NamedView<MailView>>;
+type MailScrollerView = ScrollView<OnEventView<NamedView<MailView>>>;
 type MailView = TextView;
 type MailTreeView<'a> = TreeView<&'a EasyMail<'a>>;
 
