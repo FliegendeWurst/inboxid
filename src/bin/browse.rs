@@ -92,16 +92,16 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	for i in 0..mails.len() {
 		let mail = &*mails[i];
 		for value in mail.get_header_values("In-Reply-To") {
-			for mid in value.split(' ').map(ToOwned::to_owned) {
-				if let Some(other_mail) = mails_by_id.get(&mid) {
+			for mid in value.split(' ') {
+				if let Some(other_mail) = mails_by_id.get(mid) {
 					graph.add_edge(nodes[other_mail], nodes[mail], ());
 				} else {
-					let pseudomail = Box::leak(Box::new(EasyMail::new_pseudo(mid.clone())));
+					let pseudomail = Box::leak(Box::new(EasyMail::new_pseudo(mid.to_owned())));
 					let node = graph.add_node(pseudomail);
 					nodes.insert(pseudomail, node);
 					nodes_inv.insert(node, pseudomail);
 					graph.add_edge(node, nodes[mail], ());
-					mails_by_id.insert(mid, pseudomail);
+					mails_by_id.insert(mid.to_owned(), pseudomail);
 				}
 			}
 		}
@@ -127,10 +127,9 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	}
 	let print_thread = |this: &PrintThread, node, placement, parent| {
 		let mail = nodes_inv[&node];
-		if mails_printed.borrow().contains(mail) && placement == Placement::After {
+		if mails_printed.borrow().contains(&mail) { // TODO: placement == Placement::After ?
 			return;
 		}
-		//println!("{}{}", "   ".repeat(depth), mail.subject);
 		let entry = tree.borrow_mut().insert_item(mail, placement, parent);
 		mails_printed.borrow_mut().insert(mail);
 		let mut replies = graph.neighbors_directed(node, EdgeDirection::Outgoing).collect_vec();
