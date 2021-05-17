@@ -3,7 +3,7 @@
 use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 use std::result::Result as StdResult;
 
-use cursive::{Cursive, Vec2, WrapMethod, traits::Finder, view::ViewWrapper};
+use cursive::{Cursive, Vec2, WrapMethod, view::ViewWrapper};
 use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
@@ -14,7 +14,7 @@ use inboxid::*;
 use io::Write;
 use itertools::Itertools;
 use log::error;
-use mailparse::{MailHeaderMap, ParsedMail, parse_mail};
+use mailparse::{MailHeaderMap, ParsedMail};
 use parking_lot::{Mutex, RwLock};
 use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::{Dfs, IntoNodeReferences}};
 use rusqlite::params;
@@ -218,9 +218,6 @@ fn show_listing(mailbox: &str) -> Result<()> {
 			siv.call_on_name("mail", |view: &mut MailPartView| {
 				view.set_part(mail);
 			});
-			siv.call_on_name("mail_scroller", |view: &mut MailScrollerView| {
-				view.scroll_to_top();
-			});
 		}
 	};
 	tree.set_on_submit(|siv, _row| {
@@ -277,11 +274,11 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				}
 			});
 		});
-	let tree_resized = ResizedView::new(SizeConstraint::AtMost(120), SizeConstraint::Free, tree);
+	let tree_resized = ResizedView::new(SizeConstraint::Fixed(120), SizeConstraint::Full, tree);
 	let mail_info = MailInfoView::new().with_name("mail_info");
 	let mail_content = MailPartView::empty().with_name("mail");
 	static MAIL_FULLSCREEN: AtomicBool = AtomicBool::new(false);
-	let dummy = std::rc::Rc::new(RefCell::new(Some(OnEventView::new(MailView::empty().with_name("dummy")).scrollable()))); // TODO dummy content
+	let dummy = std::rc::Rc::new(RefCell::new(Some(OnEventView::new(MailView::empty().with_name("dummy")))));
 	let dummy_ = dummy.clone();
 	let mail_content = OnEventView::new(mail_content)
 		.on_event('f', move |s| {
@@ -290,8 +287,8 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				let layer = s.pop_layer().unwrap();
 				if let Ok(textview) = layer.downcast::<ResizedView<MailScrollerView>>() {
 					let mut it = textview.into_inner().unwrap_or_else(|_| panic!("?"));
-					it.set_show_scrollbars(true);
-					it.get_inner_mut().get_inner_mut().get_mut().set_wrap_method(WrapMethod::XiUnicode);
+					it.get_inner_mut().get_mut().text.as_mut().unwrap().set_show_scrollbars(true);
+					it.get_inner_mut().get_mut().set_wrap_method(WrapMethod::XiUnicode);
 					dummy__.borrow_mut().replace(it);
 					s.call_on_name("mail_scroller", move |this: &mut MailScrollerView| {
 						std::mem::swap(dummy__.borrow_mut().as_mut().unwrap(), this);
@@ -303,14 +300,14 @@ fn show_listing(mailbox: &str) -> Result<()> {
 					std::mem::swap(dummy__.borrow_mut().as_mut().unwrap(), this);
 				});
 				let mut it = dummy_.borrow_mut().take().unwrap();
-				it.set_show_scrollbars(false);
-				it.get_inner_mut().get_inner_mut().get_mut().set_wrap_method(WrapMethod::Newlines);
+				it.get_inner_mut().get_mut().text.as_mut().unwrap().set_show_scrollbars(false);
+				it.get_inner_mut().get_mut().set_wrap_method(WrapMethod::Newlines);
 				eprintln!("adding fullscreen layer!");
 				s.add_fullscreen_layer(ResizedView::with_full_screen(it));
 				MAIL_FULLSCREEN.store(true, Ordering::SeqCst);
 			}
 		});
-	let mail_content: MailScrollerView = mail_content.scrollable();
+	let mail_content: MailScrollerView = mail_content;
 	let mail_content = mail_content.with_name("mail_scroller");
 	let mut mail_part_select = TreeView::<MailPart>::new();
 	mail_part_select.set_on_select(|siv, row| {
@@ -325,11 +322,11 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		siv.focus_name("mail").unwrap();
 	});
 	let mail_wrapper = LinearLayout::vertical()
-		.child(ResizedView::with_full_width(Panel::new(mail_info).title("Mail")))
-		.child(ResizedView::with_full_height(mail_content))
+		.child(ResizedView::new(SizeConstraint::Full, SizeConstraint::Fixed(5), Panel::new(mail_info).title("Mail")))
+		.child(ResizedView::with_full_screen(mail_content))
 		.child(Panel::new(mail_part_select.with_name("part_select"))
 			.title("Multipart selection"));
-	let mail_content_resized = ResizedView::new(SizeConstraint::Full, SizeConstraint::Free, mail_wrapper);
+	let mail_content_resized = ResizedView::new(SizeConstraint::Fixed(127), SizeConstraint::Full, mail_wrapper);
 	let main = LinearLayout::horizontal()
 		.child(tree_resized)
 		.child(mail_content_resized);
@@ -387,6 +384,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 
 	// manual event loop (to scroll to end of ScrollView)
 	let mut siv = siv.into_runner(cursive::backends::termion::Backend::init()?);
+	siv.set_autorefresh(false);
 	siv.refresh();
 	siv.call_on_name("tree_scroller", |tree: &mut ScrollView<NamedView<MailTreeView>>| {
 		tree.on_event(Event::Key(Key::End))
@@ -399,7 +397,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	Ok(())
 }
 
-type MailScrollerView = ScrollView<OnEventView<NamedView<MailView>>>;
+type MailScrollerView = OnEventView<NamedView<MailView>>;
 type MailView = MailPartView;
 type MailTreeView<'a> = TreeView<&'a EasyMail<'a>>;
 
@@ -427,8 +425,10 @@ impl TreeEntry for MailPart {}
 struct MailPartView {
 	part: Option<&'static ParsedMail<'static>>,
 	wrap: WrapMethod,
-	text: Option<TextView>,
-	cached_size: Option<Vec2>
+	text: Option<ScrollView<TextView>>,
+	cached_size: Option<Vec2>,
+	expected_text_height: Option<usize>,
+	layouted_text_with_scroll: bool
 }
 
 impl MailPartView {
@@ -437,13 +437,15 @@ impl MailPartView {
 			part: None,
 			wrap: WrapMethod::XiUnicode,
 			text: None,
-			cached_size: None
+			cached_size: None,
+			expected_text_height: None,
+			layouted_text_with_scroll: false
 		}
 	}
 
 	fn set_wrap_method(&mut self, wrap: WrapMethod) {
 		if let Some(text) = self.text.as_mut() {
-			text.set_wrap_method(wrap);
+			text.get_inner_mut().set_wrap_method(wrap);
 		}
 		self.wrap = wrap;
 	}
@@ -452,6 +454,8 @@ impl MailPartView {
 		self.part = Some(part);
 		self.text = None;
 		self.cached_size = None;
+		self.expected_text_height = None;
+		self.layouted_text_with_scroll = false;
 	}
 
 	fn setup_text(&mut self, size: Vec2) {
@@ -461,20 +465,21 @@ impl MailPartView {
 		let part = self.part.unwrap();
 		let body = if part.ctype.mimetype == "text/html" {
 			let html = part.get_body().unwrap();
-			eprintln!("HTML layout using {} width", size.x);
+			eprintln!("HTML layout using {} width, length {:?}", size.x, html.len());
 			html2text::from_read(html.as_bytes(), size.x)
 		} else {
 			part.get_body().unwrap()
 		};
 		let mut text = TextView::new(body);
 		text.set_wrap_method(self.wrap);
-		self.text = Some(text);
+		self.text = Some(text.scrollable());
 	}
 }
 
 impl View for MailPartView {
 	fn draw(&self, printer: &cursive::Printer) {
 		eprintln!("drawing with {:?}", printer.output_size);
+		eprintln!("have text {:?}", self.text.is_some());
 		if let Some(text) = self.text.as_ref() {
 			text.draw(printer)
 		} else {
@@ -484,8 +489,18 @@ impl View for MailPartView {
 
 	fn layout(&mut self, given_size: Vec2) {
 		eprintln!("layout called with {:?}", given_size);
-		if self.cached_size.is_some() && self.cached_size != Some(given_size) {
-			self.setup_text(given_size);
+		if self.cached_size.is_some() {
+			if self.cached_size != Some(given_size) {
+				self.setup_text(given_size);
+			} else {
+				if !self.layouted_text_with_scroll && self.expected_text_height.unwrap_or(0) > given_size.y {
+					eprintln!("reconsidering given {:?}", given_size);
+					self.setup_text(given_size.map_x(|x| x-2));
+					self.layouted_text_with_scroll = true;
+				} else {
+					return;
+				}
+			}
 		}
 		self.cached_size = Some(given_size);
 		if let Some(text) = self.text.as_mut() {
@@ -501,14 +516,10 @@ impl View for MailPartView {
 	}
 
 	fn required_size(&mut self, constraint: Vec2) -> Vec2 {
-		// just use all of the available space
-		if let Some(text) = self.text.as_mut() {
-			let text_constraint = text.required_size(constraint);
-			let (x, y) = text_constraint.pair();
-			(x.max(constraint.x), y.max(constraint.y)).into()
-		} else {
-			constraint
+		if self.expected_text_height.is_none() && self.text.is_some() {
+			self.expected_text_height = Some(self.text.as_mut().unwrap().required_size(constraint).y);
 		}
+		constraint
 	}
 
 	fn on_event(&mut self, ev: Event) -> cursive::event::EventResult {
