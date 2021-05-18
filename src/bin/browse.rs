@@ -287,7 +287,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				let layer = s.pop_layer().unwrap();
 				if let Ok(textview) = layer.downcast::<ResizedView<MailScrollerView>>() {
 					let mut it = textview.into_inner().unwrap_or_else(|_| panic!("?"));
-					it.get_inner_mut().get_mut().text.as_mut().unwrap().set_show_scrollbars(true);
+					it.get_inner_mut().get_mut().set_scroll(true);
 					it.get_inner_mut().get_mut().set_wrap_method(WrapMethod::XiUnicode);
 					dummy__.borrow_mut().replace(it);
 					s.call_on_name("mail_scroller", move |this: &mut MailScrollerView| {
@@ -300,7 +300,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 					std::mem::swap(dummy__.borrow_mut().as_mut().unwrap(), this);
 				});
 				let mut it = dummy_.borrow_mut().take().unwrap();
-				it.get_inner_mut().get_mut().text.as_mut().unwrap().set_show_scrollbars(false);
+				it.get_inner_mut().get_mut().set_scroll(false);
 				it.get_inner_mut().get_mut().set_wrap_method(WrapMethod::Newlines);
 				eprintln!("adding fullscreen layer!");
 				s.add_fullscreen_layer(ResizedView::with_full_screen(it));
@@ -425,6 +425,7 @@ impl TreeEntry for MailPart {}
 struct MailPartView {
 	part: Option<&'static ParsedMail<'static>>,
 	wrap: WrapMethod,
+	scroll: bool,
 	text: Option<ScrollView<TextView>>,
 	cached_size: Option<Vec2>,
 	expected_text_height: Option<usize>,
@@ -436,6 +437,7 @@ impl MailPartView {
 		MailPartView {
 			part: None,
 			wrap: WrapMethod::XiUnicode,
+			scroll: true,
 			text: None,
 			cached_size: None,
 			expected_text_height: None,
@@ -448,6 +450,13 @@ impl MailPartView {
 			text.get_inner_mut().set_wrap_method(wrap);
 		}
 		self.wrap = wrap;
+	}
+
+	fn set_scroll(&mut self, scroll: bool) {
+		self.scroll = scroll;
+		if let Some(text) = self.text.as_mut() {
+			text.set_show_scrollbars(scroll);
+		}
 	}
 
 	fn set_part(&mut self, part: &'static ParsedMail<'static>) {
@@ -472,7 +481,9 @@ impl MailPartView {
 		};
 		let mut text = TextView::new(body);
 		text.set_wrap_method(self.wrap);
-		self.text = Some(text.scrollable());
+		let text = text.scrollable()
+			.show_scrollbars(self.scroll);
+		self.text = Some(text);
 	}
 }
 
@@ -482,8 +493,6 @@ impl View for MailPartView {
 		eprintln!("have text {:?}", self.text.is_some());
 		if let Some(text) = self.text.as_ref() {
 			text.draw(printer)
-		} else {
-			printer.print((0, 0), "missing text cache");
 		}
 	}
 
@@ -493,7 +502,7 @@ impl View for MailPartView {
 			if self.cached_size != Some(given_size) {
 				self.setup_text(given_size);
 			} else {
-				if !self.layouted_text_with_scroll && self.expected_text_height.unwrap_or(0) > given_size.y {
+				if !self.layouted_text_with_scroll && self.scroll && self.expected_text_height.unwrap_or(0) > given_size.y {
 					eprintln!("reconsidering given {:?}", given_size);
 					self.setup_text(given_size.map_x(|x| x-2));
 					self.layouted_text_with_scroll = true;
