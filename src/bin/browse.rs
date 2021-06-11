@@ -427,10 +427,15 @@ fn show_listing(mailbox: &str) -> Result<()> {
 		tree.on_event(Event::Key(Key::End))
 	}).unwrap().process(&mut siv);
 	siv.refresh();
+	siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().terminal.get_mut().write_all(&[b'\x1b', b'\x50', b't', b'm', b'u', b'x', b';', b'\x1b', b'\x1b', b'\x50', b'=', b'2', b's', b'\x1b', b'\x1b', b'\x5c', b'\x1b', b'\\']).unwrap();
+	siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().terminal.get_mut().flush().unwrap();
+	*siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().locked.get_mut() = false;
 	while siv.is_running() {
-		siv.step();
+		while !siv.step() {}
+		siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().terminal.get_mut().write_all(&[b'\x1b', b'\x50', b't', b'm', b'u', b'x', b';', b'\x1b', b'\x1b', b'\x50', b'=', b'2', b's', b'\x1b', b'\x1b', b'\x5c', b'\x1b', b'\\']).unwrap();
+		siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().terminal.get_mut().flush().unwrap();
+		*siv.backend.as_any_mut().downcast_mut::<cursive::backends::termion::Backend>().unwrap().locked.get_mut() = false;
 	}
-
 	Ok(())
 }
 
