@@ -520,10 +520,12 @@ impl MaildirExtension for Maildir {
 	}
 }
 
+#[deprecated]
 pub fn store_i64(x: u64) -> i64 {
 	unsafe { std::mem::transmute(x) }
 }
 
+#[deprecated]
 pub fn load_i64(x: i64) -> u64 {
 	unsafe { std::mem::transmute(x) }
 }
@@ -626,6 +628,8 @@ pub struct Browse {
 	#[serde(deserialize_with = "deserialize_style")]
 	#[serde(serialize_with = "serialize_style")]
 	pub deleted_style: Style,
+	#[serde(default)]
+	pub base_save_path: PathBuf,
 }
 
 impl Default for Browse {
@@ -634,7 +638,8 @@ impl Default for Browse {
 			show_email_addresses: Default::default(),
 			unread_style: default_unread_style(),
 			trashed_style: default_trashed_style(),
-			deleted_style: default_deleted_style()
+			deleted_style: default_deleted_style(),
+			base_save_path: directories_next::UserDirs::new().expect("no user dirs").download_dir().expect("no download directory").to_owned()
 		}
 	}
 }

@@ -1,9 +1,9 @@
 #![feature(internal_output_capture)]
 
-use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, sync::{Arc, atomic::{AtomicBool, Ordering}}};
+use std::{cell::RefCell, cmp, collections::{HashMap, HashSet}, env, fmt::Display, io, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 use std::result::Result as StdResult;
 
-use cursive::{Cursive, Vec2, WrapMethod, view::ViewWrapper};
+use cursive::{Cursive, Vec2, WrapMethod, traits::Boxable, view::ViewWrapper, views::{Dialog, EditView}};
 use cursive::align::HAlign;
 use cursive::event::{Event, Key};
 use cursive::traits::Identifiable;
@@ -306,6 +306,43 @@ fn show_listing(mailbox: &str) -> Result<()> {
 				s.add_fullscreen_layer(ResizedView::with_full_screen(it));
 				MAIL_FULLSCREEN.store(true, Ordering::SeqCst);
 			}
+		})
+		.on_event('s', |s| {
+			if let Some((bytes, name)) = s.call_on_name("mail", |mail: &mut MailPartView| {
+				mail.part.map(|x| (x.get_body_raw().unwrap(), x.get_content_disposition().params.get("filename").cloned()))
+			}).flatten() {
+				let mut default_path = CONFIG.get().unwrap().read().browse.base_save_path.display().to_string();
+				if let Some(name) = name {
+					default_path.push('/');
+					default_path += &name;
+				}
+				let bytes = Rc::new(bytes);
+				let bytes2 = bytes.clone();
+				s.add_layer(
+					Dialog::new()
+						.title("Enter filename")
+						.padding_lrtb(1, 1, 1, 0)
+						.content(
+							EditView::new()
+								.content(default_path)
+								.on_submit(move |s, path| {
+									std::fs::write(path, bytes.as_ref()).unwrap();
+									s.pop_layer();
+								})
+								.with_name("filename")
+								.fixed_width(100),
+						)
+						.button("Ok", move |s| {
+							let path = s
+								.call_on_name("filename", move |view: &mut EditView| {
+									view.get_content()
+								})
+								.unwrap();
+							std::fs::write(path.as_ref(), bytes2.as_ref()).unwrap();
+							s.pop_layer();
+						}),
+				);
+			}
 		});
 	let mail_content: MailScrollerView = mail_content;
 	let mail_content = mail_content.with_name("mail_scroller");
@@ -454,6 +491,7 @@ impl MailPartView {
 
 	fn set_scroll(&mut self, scroll: bool) {
 		self.scroll = scroll;
+		self.layouted_text_with_scroll = !scroll;
 		if let Some(text) = self.text.as_mut() {
 			text.set_show_scrollbars(scroll);
 		}
@@ -476,8 +514,10 @@ impl MailPartView {
 			let html = part.get_body().unwrap();
 			eprintln!("HTML layout using {} width, length {:?}", size.x, html.len());
 			html2text::from_read(html.as_bytes(), size.x)
-		} else {
+		} else if part.ctype.mimetype.starts_with("text/") {
 			part.get_body().unwrap()
+		} else {
+			"binary data".into()
 		};
 		let mut text = TextView::new(body);
 		text.set_wrap_method(self.wrap);
@@ -489,8 +529,6 @@ impl MailPartView {
 
 impl View for MailPartView {
 	fn draw(&self, printer: &cursive::Printer) {
-		eprintln!("drawing with {:?}", printer.output_size);
-		eprintln!("have text {:?}", self.text.is_some());
 		if let Some(text) = self.text.as_ref() {
 			text.draw(printer)
 		}
@@ -502,10 +540,10 @@ impl View for MailPartView {
 			if self.cached_size != Some(given_size) {
 				self.setup_text(given_size);
 			} else {
-				if !self.layouted_text_with_scroll && self.scroll && self.expected_text_height.unwrap_or(0) > given_size.y {
+				if self.layouted_text_with_scroll != self.scroll && self.expected_text_height.unwrap_or(0) > given_size.y {
 					eprintln!("reconsidering given {:?}", given_size);
 					self.setup_text(given_size.map_x(|x| x-2));
-					self.layouted_text_with_scroll = true;
+					self.layouted_text_with_scroll = self.scroll;
 				} else {
 					return;
 				}
