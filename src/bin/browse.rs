@@ -61,7 +61,7 @@ fn show_listing(mailbox: &str) -> Result<()> {
 	let mut threads: HashMap<_, Vec<_>> = HashMap::new();
 	for i in 0..mails.len() {
 		let mail = &*mails[i];
-		let mid = mail.get_header("Message-ID");
+		let mid = mail.get_headers().message_id(mailbox, mail.id);
 		threads.entry(mid.clone()).or_default().push(mail);
 		if mails_by_id.insert(mid, mail).is_some() {
 			println!("error: missing/duplicate Message-ID");
