@@ -1,7 +1,7 @@
 use std::array::IntoIter;
 
 use ascii_table::{AsciiTable, Align, Column};
-use inboxid::*;
+use inboxid_lib::*;
 
 fn main() -> Result<()> {
 	let mut dirs = get_maildirs()?;

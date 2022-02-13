@@ -3,7 +3,7 @@ use std::{array::IntoIter, env};
 use ascii_table::{Align, AsciiTable, Column};
 use itertools::Itertools;
 
-use inboxid::*;
+use inboxid_lib::*;
 
 fn main() -> Result<()> {
 	let args = env::args().collect_vec();

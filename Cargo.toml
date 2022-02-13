@@ -10,3 +10,10 @@ members = [
     "inboxid-overview",
     "inboxid-sync",
 ]
+
+[patch.crates-io]
+cursive = { path = "../cursive/cursive" }
+cursive_core = { path = "../cursive/cursive-core" } # locally patched at v0.2.2 to improve text rendering perf.
+
+[profile.release]
+overflow-checks = true # useful when debugging

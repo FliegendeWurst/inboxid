@@ -1,6 +1,6 @@
 use std::env;
 
-use inboxid::*;
+use inboxid_lib::*;
 use itertools::Itertools;
 use rusqlite::params;
 

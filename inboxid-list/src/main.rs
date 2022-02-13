@@ -1,7 +1,7 @@
 use std::{array::IntoIter, collections::HashSet, env, fs};
 
 use ascii_table::{Align, AsciiTable, Column};
-use inboxid::*;
+use inboxid_lib::*;
 use itertools::Itertools;
 use mailparse::ParsedMail;
 use rustyline::{Editor, error::ReadlineError};

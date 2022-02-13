@@ -1,5 +1,5 @@
 [package]
-name = "inboxid"
+name = "inboxid-new"
 version = "0.1.0"
 authors = ["Arne Keller <arne.keller@posteo.de>"]
 edition = "2018"
@@ -34,9 +34,4 @@ parking_lot = "0.11.1"
 log = "0.4.14"
 html2text = "0.2.1"
 
-[patch.crates-io]
-cursive = { path = "../cursive/cursive" }
-cursive_core = { path = "../cursive/cursive-core" } # locally patched at v0.2.2 to improve text rendering perf.
-
-[profile.release]
-overflow-checks = true # useful when debugging
+inboxid-lib = { path = "../inboxid-lib" }

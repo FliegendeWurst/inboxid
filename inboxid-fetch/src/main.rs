@@ -3,7 +3,7 @@ use std::{cmp, env, time::Duration};
 use itertools::Itertools;
 use maildir::Maildir;
 
-use inboxid::*;
+use inboxid_lib::*;
 use mailparse::{MailHeaderMap, parse_headers};
 use rusqlite::params;
 

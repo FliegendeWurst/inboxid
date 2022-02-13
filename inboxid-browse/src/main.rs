@@ -10,7 +10,7 @@ use cursive::traits::Identifiable;
 use cursive::view::{Scrollable, SizeConstraint, View};
 use cursive::views::{Checkbox, LinearLayout, NamedView, OnEventView, Panel, ResizedView, ScrollView, SelectView, TextView};
 use cursive_tree_view::{Placement, TreeEntry, TreeView};
-use inboxid::*;
+use inboxid_lib::*;
 use io::Write;
 use itertools::Itertools;
 use log::error;

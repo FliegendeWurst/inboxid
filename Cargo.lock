@@ -504,7 +504,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "inboxid"
+name = "inboxid-browse"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -515,6 +515,230 @@ dependencies = [
  "directories-next",
  "html2text",
  "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-fetch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-filter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-list"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-new"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-overview"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
+ "itertools",
+ "log",
+ "maildir",
+ "mailparse",
+ "mailproc",
+ "mime2ext",
+ "moins",
+ "once_cell",
+ "parking_lot",
+ "petgraph",
+ "rusqlite",
+ "rustls-connector",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "subprocess",
+ "toml",
+]
+
+[[package]]
+name = "inboxid-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ascii_table",
+ "chrono",
+ "cursive",
+ "cursive_tree_view",
+ "directories-next",
+ "html2text",
+ "imap",
+ "inboxid-lib",
  "itertools",
  "log",
  "maildir",

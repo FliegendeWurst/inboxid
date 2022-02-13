@@ -5,7 +5,7 @@ use imap::types::{Flag, NameAttribute};
 use itertools::Itertools;
 use maildir::Maildir;
 
-use inboxid::*;
+use inboxid_lib::*;
 use mailparse::{parse_header, parse_headers};
 use rusqlite::{Row, params, types::FromSql};
 

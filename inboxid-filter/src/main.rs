@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::anyhow;
-use inboxid::*;
+use inboxid_lib::*;
 use itertools::Itertools;
 use mailproc::Config;
 
