@@ -12,8 +12,8 @@ members = [
 ]
 
 [patch.crates-io]
-cursive = { path = "../cursive/cursive" }
-cursive_core = { path = "../cursive/cursive-core" } # locally patched at v0.2.2 to improve text rendering perf.
+cursive = { git = "https://github.com/FliegendeWurst/cursive", branch = "modified-0.16" }
+cursive_core = { git = "https://github.com/FliegendeWurst/cursive", branch = "modified-0.16" }
 
 [profile.release]
 overflow-checks = true # useful when debugging
