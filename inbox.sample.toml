@@ -1,0 +1,123 @@
+# Configuration file format version
+version = 1
+
+[[rules]]
+action = [
+["mv", "Archives.2021"]
+]
+headers = [
+{ From = ".+ <rechnungsstelle@1und1.de>" },
+#{ From = ".*<kd2lab@iism.kit.edu>" },
+{ From = ".+ <noreply@myfritz.net>" },
+{ From = ".+ <security@vaadin.com>" },
+{ From = ".+ <nobody@mozilla.org>" },
+#{ From = ".+ <noreply@github.com>" },
+#{ From = ".+ <ebay@ebay.com>" },
+#{ From = ".+ <service@paypal.de>" },
+#{ From = ".+ <.+@githubsupport.com>" }
+]
+
+[[rules]]
+action = [
+["mv", "GI"],
+]
+headers = [
+{ From = '.+ <mitgliederservice@gi.de>' },
+{ From = '.+ <news@gi-radar.de>' },
+{ From = '.+ <berlin@gi.de>' }
+]
+
+[[rules]]
+action = [
+["mv", "Github"],
+]
+headers = [
+{ From = ".*<notifications@github.com>$" }
+]
+
+[[rules]]
+action = [
+["mv", "Gitlab"],
+]
+headers = [
+{ From = ".*<gitlab@mg.gitlab.com>$" }
+]
+
+[[rules]]
+action = [
+["mv", "Bugzilla"],
+]
+headers = [
+{ From = '"Bugzilla@Mozilla" <bugzilla-daemon@mozilla.org>' }
+]
+
+[[rules]]
+action = [
+["mv", "KDE-Bugzilla"],
+]
+headers = [
+{ From = '.+ <bugzilla_noreply@kde.org>' }
+]
+
+[[rules]]
+action = [
+["mv", "Mojang JIRA"]
+]
+headers = [
+{ From = '.+ <bugs@mojang.com>' }
+]
+
+[[rules]]
+action = [
+["mv", "tor-dev"]
+]
+headers = [
+{ List-Id = '.+ <tor-dev.lists.torproject.org>' },
+{ To = 'tor-dev@lists.torproject.org' },
+{ List-Id = '.+ <network-health.lists.torproject.org>' },
+{ List-Id = '.+ <tor-talk.lists.torproject.org>' },
+]
+
+[[rules]]
+action = [
+["mv", "News"]
+]
+headers = [
+# DPG
+{ From = 'nachrichten@dpg-physik.de' },
+{ From = '.+ <newsletter@physik-journal.de>' },
+# news
+{ From = '.+ <schneier@schneier.com>' },
+{ From = '.+ <radreporter@bnn.de>' },
+{ From = '.+ <info@parents4future-ka.de>' },
+{ From = '.+ <info@klimabuendnis-karlsruhe.de>' },
+{ From = '.+ <info@editorial.theguardian.com>' },
+{ From = '.+ <.+@correctiv.org>' },
+{ From = '.+ <email@ozguruz.org>' },
+{ From = '.+ <mozilla@email.mozilla.org>' },
+{ From = '.+ <.+@eff.org>' },
+{ From = '.+ <communications@lists.propublica.net>' },
+{ From = '.+ <internetobservatory@stanford.edu>' },
+{ From = '.+ <announce@announce.puri.sm>' },
+{ From = '.+ <do-not-reply@stackoverflow.email>' },
+{ From = '.+ <info@campact.de>' },
+{ From = '.+ <aktuell@foodwatch.de>' },
+{ From = '.+ <newsletter@lobbycontrol.de>' },
+{ From = '.+ <info@fragdenstaat.de>' },
+{ From = '.+ <.+@.*duh.de>' },
+{ From = '.+ <benachrichtigung@uebermedien.de>' },
+{ From = '.+ <mail@investigate-europe.eu>' },
+# The Markup
+{ From = '.+ <klaxon@getrevue.co>' },
+{ From = '.+ <info@sven-giegold.de>' },
+{ From = '.+ <info@danielfreund.eu>' },
+{ From = '.+ <noreply@opencaching.de>' },
+{ From = 'Newsletter.+ <contact@democracy-deutschland.de>' },
+{ From = '.+ <newsletter@feistyduck.com>' },
+# Discourse
+{ From = '.+ <rust_lang@discoursemail.com>' },
+{ From = '.+ <rustlang@discoursemail.com>' },
+{ From = '.+ <nixos1@discoursemail.com>' },
+# Petitions
+{ From = '.+ <takeaction@edri.org>' },
+]
